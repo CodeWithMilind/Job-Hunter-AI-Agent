@@ -1,16 +1,40 @@
 #!/usr/bin/env python
 """Test script to verify the reset endpoint works end-to-end."""
 
+import asyncio
 import sys
 sys.path.insert(0, ".")
 sys.path.insert(0, "dashboard")
 
-from fastapi.testclient import TestClient
+import httpx
 import dashboard.app as app_mod
+
+
+class _ASGITestClient:
+    """Small sync wrapper around HTTPX's installed ASGI transport."""
+
+    def __init__(self, application):
+        self.application = application
+
+    def _request(self, method, url, **kwargs):
+        async def request():
+            transport = httpx.ASGITransport(app=self.application)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                return await client.request(method, url, **kwargs)
+
+        return asyncio.run(request())
+
+    def post(self, url, **kwargs):
+        return self._request("POST", url, **kwargs)
+
+    def get(self, url, **kwargs):
+        return self._request("GET", url, **kwargs)
 
 def test_reset_flow():
     """Test: search → check stats → reset → verify empty → search again."""
-    client = TestClient(app_mod.app)
+    client = _ASGITestClient(app_mod.app)
     
     print("\n" + "="*60)
     print("RESET FLOW VERIFICATION")

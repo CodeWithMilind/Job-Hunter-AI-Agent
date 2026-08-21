@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import yaml
 
 # Make sure both the project and dashboard modules are importable.
 _project_root = str(Path(__file__).resolve().parent.parent)
@@ -56,6 +57,10 @@ class ConfigUpdate(BaseModel):
 class ConfigBulkUpdate(BaseModel):
     configs: Dict[str, str]
 
+class TelegramFetchRequest(BaseModel):
+    query: str = ""
+    limit: int = 50
+
 # ─── API Routes ────────────────────────────────────────────────────────────
 
 @app.get("/api/jobs")
@@ -79,6 +84,127 @@ def list_jobs(
         limit=limit, offset=offset,
     )
     return {"jobs": jobs, "count": len(jobs)}
+
+
+@app.get("/api/jobs/telegram")
+def list_telegram_jobs(
+    search: Optional[str] = None,
+    sort_by: str = "posted",
+    sort_order: str = "DESC",
+    limit: int = 200,
+    offset: int = 0,
+):
+    """Return only Telegram jobs already stored by the unified pipeline."""
+    jobs = db.get_jobs(
+        source="Telegram",
+        search=search,
+        sort_by="created_at" if sort_by == "posted" else sort_by,
+        sort_order=sort_order,
+        limit=limit,
+        offset=offset,
+    )
+    now = time.time()
+    recent_cutoff = now - 7 * 86400
+    recent = [job for job in jobs if job.get("created_at", 0) >= recent_cutoff]
+    remote = [job for job in jobs if job.get("remote")]
+    return {
+        "jobs": jobs,
+        "count": len(jobs),
+        "stats": {
+            "total": len(jobs),
+            "recent": len(recent),
+            "remote": len(remote),
+        },
+    }
+
+
+def _telegram_identity(job: Any) -> str:
+    metadata = job.get("source_metadata", {}) if isinstance(job, dict) else (job.source_metadata or {})
+    url = job.get("url", "") if isinstance(job, dict) else job.url
+    telegram_url = metadata.get("telegram_message_url", "")
+    application_url = url if url and "t.me/" not in url and "telegram.me/" not in url else ""
+    return (
+        application_url
+        or telegram_url
+        or url
+        or f"{metadata.get('channel_username', '')}:{metadata.get('telegram_message_id', '')}"
+    ).strip().lower()
+
+
+def _telegram_job_dict(job: Any) -> Dict[str, Any]:
+    return {
+        "title": job.title,
+        "company": job.company,
+        "location": job.location,
+        "url": job.url,
+        "description": job.description,
+        "salary": job.salary,
+        "source": job.source,
+        "source_type": job.source_type,
+        "original_url": job.original_url,
+        "source_metadata": job.source_metadata,
+        "remote": job.remote,
+        "country": job.country,
+        "location_restrictions": job.location_restrictions,
+        "timezone": job.timezone,
+        "india_eligibility": job.india_eligibility,
+        "tags": job.tags,
+        "posted": job.posted,
+        "score": job.score,
+        "rating": job.rating,
+        "reasoning": job.reasoning,
+        "skills_match": job.skills_match,
+        "experience_fit": job.experience_fit,
+        "salary_fit": job.salary_fit,
+        "remote_fit": job.remote_fit,
+    }
+
+
+@app.post("/api/telegram/fetch")
+def fetch_telegram_jobs(request: TelegramFetchRequest):
+    """Fetch Telegram jobs and persist them through the existing jobs table."""
+    config_path = Path(_project_root) / "sources.yaml"
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        telegram_config = config.get("sources", {}).get("telegram", {})
+        enabled = isinstance(telegram_config, dict) and bool(telegram_config.get("enabled", False))
+    except Exception as exc:
+        logger.warning("Telegram configuration could not be read: %s", exc)
+        return {"success": False, "status": "error", "message": "Telegram configuration could not be read.", "fetched": 0, "new_jobs": 0, "duplicates": 0}
+
+    if not enabled:
+        return {"success": False, "status": "disabled", "message": "Telegram is disabled in sources.yaml.", "fetched": 0, "new_jobs": 0, "duplicates": 0}
+
+    try:
+        from hirevia.sources.telegram import TelegramSearch
+
+        source = TelegramSearch()
+        jobs = source.fetch(request.query.strip(), limit=request.limit)
+        existing = db.get_jobs(source="Telegram", limit=10000)
+        existing_ids = {_telegram_identity(job) for job in existing if _telegram_identity(job)}
+        new_count = 0
+        duplicate_count = 0
+        for job in jobs:
+            identity = _telegram_identity(job)
+            if identity and identity in existing_ids:
+                duplicate_count += 1
+                continue
+            db.upsert_job(_telegram_job_dict(job))
+            new_count += 1
+            if identity:
+                existing_ids.add(identity)
+        db.log_activity("success", f"Telegram fetch: {new_count} new jobs, {duplicate_count} duplicates skipped")
+        return {
+            "success": True,
+            "status": "completed",
+            "message": f"Fetched {new_count} new jobs. {duplicate_count} duplicates skipped." if new_count or duplicate_count else "No new Telegram jobs found.",
+            "fetched": len(jobs),
+            "new_jobs": new_count,
+            "duplicates": duplicate_count,
+        }
+    except Exception as exc:
+        logger.warning("Telegram fetch failed: %s", exc)
+        return {"success": False, "status": "error", "message": "Telegram fetch failed. Check Telegram authentication and channel access.", "fetched": 0, "new_jobs": 0, "duplicates": 0}
 
 
 @app.get("/api/jobs/{job_id}")

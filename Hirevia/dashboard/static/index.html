@@ -18,8 +18,26 @@
             }
         }
     </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { background: #020617; color: #e2e8f0; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        :root { --ink: #e8edf5; --muted: #8491a7; --line: rgba(148,163,184,.14); --panel: #111a2b; --panel-2: #0d1524; --cyan: #44d7ce; --orange: #f4a261; }
+        body { background: #080d18; color: var(--ink); font-family: 'DM Sans', sans-serif; background-image: radial-gradient(circle at 80% -10%, rgba(68,215,206,.08), transparent 32rem), linear-gradient(135deg, #080d18 0%, #0b1220 55%, #101323 100%); }
+        h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; letter-spacing: 0; }
+        header { position: sticky; top: 0; z-index: 50; }
+        main, #stats-bar, .max-w-\[1600px\] { max-width: none; margin-left: 0; margin-right: 0; }
+        .tab-btn { border-bottom-color: transparent !important; }
+        .tab-active { color: var(--cyan) !important; border-bottom-color: var(--cyan) !important; }
+        .stat-item { padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(17,26,43,.7); }
+        .job-card { background: rgba(17,26,43,.58); border: 1px solid transparent; margin: 7px 10px; border-radius: 12px; }
+        .job-card:hover, .job-card.active { background: #172237; border-color: rgba(68,215,206,.35); transform: translateX(3px); }
+        .score-bar { background: #253149; }
+        .badge { letter-spacing: .04em; }
+        .top-nav { display: flex; align-items: center; gap: 4px; overflow-x: auto; }
+        .top-nav .tab-btn { white-space: nowrap; padding: 8px 10px; border-radius: 7px; }
+        .top-nav .tab-btn:hover { background: rgba(255,255,255,.06); }
+        @media (max-width: 800px) { .header-nav { flex-wrap: wrap; } .top-nav { order: 3; width: 100%; } }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #0f172a; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
@@ -45,13 +63,20 @@
 <body class="min-h-screen flex flex-col">
 
 <!-- Header -->
-<header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-50">
-    <div class="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between">
+<header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm">
+    <div class="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between gap-5 header-nav">
         <div class="flex items-center gap-3">
             <div class="text-2xl">🎯</div>
             <h1 class="text-lg font-bold text-white">Hirevia</h1>
             <span class="text-xs text-slate-500 font-medium">Dashboard</span>
         </div>
+        <nav class="top-nav" aria-label="Dashboard sections">
+            <button class="tab-btn text-sm font-medium text-slate-400 tab-active" data-tab="search" onclick="switchTab('search')">Search & Review</button>
+            <button class="tab-btn text-sm font-medium text-slate-400" data-tab="kanban" onclick="switchTab('kanban')">Pipeline</button>
+            <button class="tab-btn text-sm font-medium text-slate-400" data-tab="config" onclick="switchTab('config')">Config</button>
+            <button class="tab-btn text-sm font-medium text-slate-400" data-tab="sources" onclick="switchTab('sources')">Sources & Resources</button>
+            <button class="tab-btn text-sm font-medium text-slate-400" data-tab="telegram" onclick="switchTab('telegram')">Telegram Jobs</button>
+        </nav>
         <div class="flex items-center gap-4">
             <div id="search-indicator" class="hidden flex items-center gap-2 text-amber-400 text-sm">
                 <span class="w-2 h-2 rounded-full bg-amber-400 pulse-dot"></span>
@@ -106,24 +131,6 @@
             <span class="text-slate-500">Avg Score</span>
             <span class="font-bold text-cyan-400" id="stat-avg">0</span>
         </div>
-    </div>
-</div>
-
-<!-- Tab Navigation -->
-<div class="border-b border-slate-800 bg-slate-900/30">
-    <div class="max-w-[1600px] mx-auto px-4 flex gap-6">
-        <button class="tab-btn py-3 text-sm font-medium text-slate-400 hover:text-white transition tab-active" data-tab="search" onclick="switchTab('search')">
-            🔍 Search & Review
-        </button>
-        <button class="tab-btn py-3 text-sm font-medium text-slate-400 hover:text-white transition" data-tab="kanban" onclick="switchTab('kanban')">
-            📋 Pipeline
-        </button>
-        <button class="tab-btn py-3 text-sm font-medium text-slate-400 hover:text-white transition" data-tab="config" onclick="switchTab('config')">
-            ⚙️ Config
-        </button>
-        <button class="tab-btn py-3 text-sm font-medium text-slate-400 hover:text-white transition" data-tab="sources" onclick="switchTab('sources')">
-            🧭 Sources & Resources
-        </button>
     </div>
 </div>
 
@@ -226,6 +233,44 @@
                     </div>
                 </div>
                 <div id="inspector-content" class="hidden fade-in"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ TELEGRAM JOBS TAB ═══ -->
+    <div id="tab-telegram" class="tab-content hidden">
+        <div class="p-4 border-b border-slate-800">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                    <h2 class="text-lg font-semibold text-white">📱 Telegram Jobs</h2>
+                    <p class="text-xs text-slate-500 mt-1">Jobs already fetched and stored by Hirevia.</p>
+                </div>
+                <div class="flex gap-2">
+                    <button id="telegram-fetch-button" onclick="fetchTelegramJobs()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-3 py-2 rounded-lg transition">📥 Fetch Telegram Jobs</button>
+                    <button onclick="loadTelegramJobs()" class="bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium px-3 py-2 rounded-lg transition">↻ Refresh</button>
+                </div>
+            </div>
+            <div class="flex gap-6 mt-4 flex-wrap">
+                <div><div class="text-xs text-slate-500">Total Telegram Jobs</div><div id="telegram-stat-total" class="text-xl font-bold text-white">0</div></div>
+                <div><div class="text-xs text-slate-500">Recent Telegram Jobs</div><div id="telegram-stat-recent" class="text-xl font-bold text-cyan-400">0</div></div>
+                <div><div class="text-xs text-slate-500">Remote Jobs</div><div id="telegram-stat-remote" class="text-xl font-bold text-emerald-400">0</div></div>
+            </div>
+            <div class="flex gap-3 mt-4 flex-wrap">
+                <input id="telegram-filter-search" type="text" placeholder="Search Telegram jobs..." oninput="debounceTelegramFilter()" class="flex-1 min-w-[220px] bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500">
+                <select id="telegram-sort" onchange="loadTelegramJobs()" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+                    <option value="posted">Newest</option>
+                    <option value="score">AI Score</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex" style="height: calc(100vh - 300px);">
+            <div id="telegram-job-list" class="w-[420px] border-r border-slate-800 overflow-y-auto flex-shrink-0">
+                <div id="telegram-job-list-empty" class="p-8 text-center text-slate-500">No Telegram jobs fetched yet.</div>
+                <div id="telegram-job-cards"></div>
+            </div>
+            <div id="telegram-job-inspector" class="flex-1 overflow-y-auto p-6">
+                <div id="telegram-inspector-empty" class="h-full flex items-center justify-center text-slate-500"><div class="text-center"><div class="text-4xl mb-3">📱</div><div class="text-sm">Select a Telegram job to inspect</div></div></div>
+                <div id="telegram-inspector-content" class="hidden fade-in"></div>
             </div>
         </div>
     </div>
@@ -450,6 +495,7 @@ function switchTab(tab) {
     if (tab === 'config') loadConfig();
     if (tab === 'sources') loadSources();
     if (tab === 'search') loadJobs();
+    if (tab === 'telegram') loadTelegramJobs();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -542,10 +588,14 @@ async function loadJobs() {
 }
 
 function renderJobList() {
-    const container = document.getElementById('job-cards');
+    renderJobCards('job-cards', false);
+}
+
+function renderJobCards(containerId, telegram) {
+    const container = document.getElementById(containerId);
     container.innerHTML = state.jobs.map((j, i) => `
         <div class="job-card px-4 py-3 border-b border-slate-800/50 cursor-pointer ${j.id === state.selectedJobId ? 'active' : ''}"
-             onclick="selectJob(${j.id})" data-job-index="${i}" data-job-id="${j.id}">
+             onclick="selectJob(${j.id}, ${telegram})" data-job-index="${i}" data-job-id="${j.id}">
             <div class="flex items-start justify-between gap-2">
                 <div class="flex-1 min-w-0">
                     <div class="text-sm font-medium text-white truncate">${esc(j.title)}</div>
@@ -568,10 +618,60 @@ function renderJobList() {
     `).join('');
 }
 
-function selectJob(jobId) {
+async function loadTelegramJobs() {
+    const search = document.getElementById('telegram-filter-search').value;
+    const sort = document.getElementById('telegram-sort').value;
+    const params = new URLSearchParams({ sort_by: sort, sort_order: 'DESC', limit: '200' });
+    if (search) params.set('search', search);
+    try {
+        const data = await api(`/api/jobs/telegram?${params}`);
+        state.jobs = data.jobs;
+        document.getElementById('telegram-stat-total').textContent = data.stats.total;
+        document.getElementById('telegram-stat-recent').textContent = data.stats.recent;
+        document.getElementById('telegram-stat-remote').textContent = data.stats.remote;
+        renderJobCards('telegram-job-cards', true);
+        document.getElementById('telegram-job-list-empty').classList.toggle('hidden', state.jobs.length > 0);
+        renderInspector('telegram-');
+    } catch (e) {
+        console.error('Telegram jobs failed:', e);
+    }
+}
+
+async function fetchTelegramJobs() {
+    const button = document.getElementById('telegram-fetch-button');
+    const query = document.getElementById('telegram-filter-search').value.trim();
+    button.disabled = true;
+    button.textContent = 'Fetching Telegram jobs...';
+    try {
+        const result = await api('/api/telegram/fetch', {
+            method: 'POST',
+            body: JSON.stringify({ query }),
+        });
+        showToast(result.message || 'No new Telegram jobs found.');
+        await loadTelegramJobs();
+        await loadStats();
+    } catch (e) {
+        showToast(`Telegram fetch failed: ${e.message}`);
+    } finally {
+        button.disabled = false;
+        button.textContent = '📥 Fetch Telegram Jobs';
+    }
+}
+
+function debounceTelegramFilter() {
+    clearTimeout(state.telegramFilterDebounce);
+    state.telegramFilterDebounce = setTimeout(loadTelegramJobs, 250);
+}
+
+function selectJob(jobId, telegram = false) {
     state.selectedJobId = jobId;
-    renderJobList();
-    renderInspector();
+    if (telegram) {
+        renderJobCards('telegram-job-cards', true);
+        renderInspector('telegram-');
+    } else {
+        renderJobList();
+        renderInspector();
+    }
     // Highlight in kanban too
     document.querySelectorAll('.kanban-card').forEach(el => {
         el.classList.toggle('ring-1', parseInt(el.dataset.jobId) === jobId);
@@ -582,10 +682,10 @@ function selectJob(jobId) {
 // ═══════════════════════════════════════════════════════════════════════════
 // INSPECTOR
 // ═══════════════════════════════════════════════════════════════════════════
-function renderInspector() {
+function renderInspector(prefix = '') {
     const job = state.jobs.find(j => j.id === state.selectedJobId);
-    const empty = document.getElementById('inspector-empty');
-    const content = document.getElementById('inspector-content');
+    const empty = document.getElementById(`${prefix}inspector-empty`);
+    const content = document.getElementById(`${prefix}inspector-content`);
 
     if (!job) {
         empty.classList.remove('hidden');
@@ -648,6 +748,11 @@ function renderInspector() {
                    class="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium px-3 py-2 rounded-lg transition inline-flex items-center gap-1">
                     🔗 Open Job URL
                 </a>
+                ${job.source === 'Telegram' && job.source_metadata?.telegram_message_url ? `
+                <a href="${esc(job.source_metadata.telegram_message_url)}" target="_blank" rel="noopener"
+                   class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-medium px-3 py-2 rounded-lg transition inline-flex items-center gap-1">
+                    📱 Telegram Message
+                </a>` : ''}
                 <button onclick="updateStatus(${job.id}, 'reviewing')"
                     class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium px-3 py-2 rounded-lg transition">
                     👁️ Start Review
@@ -710,7 +815,8 @@ async function updateStatus(jobId, status) {
             body: JSON.stringify({ status }),
         });
         showToast(`Status → ${STATUS_LABELS[status] || status}`);
-        loadJobs();
+        if (state.activeTab === 'telegram') loadTelegramJobs();
+        else loadJobs();
         loadStats();
         if (state.activeTab === 'kanban') loadKanban();
     } catch (e) {

@@ -68,6 +68,11 @@ class TelegramSearch(JobSource):
         return config_dir / "telegram_state.json"
 
     @staticmethod
+    def _get_session_file() -> str:
+        """Use one persistent Telethon session regardless of launch directory."""
+        return str(TelegramSearch._get_config_dir() / "job_hunter_session")
+
+    @staticmethod
     def _load_state():
         state_file = TelegramSearch._get_state_file()
         if state_file.exists():
@@ -232,6 +237,14 @@ class TelegramSearch(JobSource):
             ],
         )
 
+        skills = self._field(
+            text,
+            [
+                r"skills?\s*[:\-]\s*(.+?)(?:\n|$)",
+                r"technolog(?:y|ies)\s*[:\-]\s*(.+?)(?:\n|$)",
+            ],
+        )
+
         remote = "remote" in text.lower() or "work from home" in text.lower()
         
         if not location:
@@ -267,12 +280,14 @@ class TelegramSearch(JobSource):
                 "channel_username": channel_username,
                 "telegram_message_id": str(message.id),
                 "telegram_message_url": tg_url,
+                "skills": skills,
             },
+            tags=[item.strip() for item in skills.split(",") if item.strip()],
             remote=remote,
             posted=message.date.isoformat() if message.date else "",
         )
 
-    async def _fetch(self, limit: int) -> List[Job]:
+    async def _fetch(self, query: str, location: str, limit: int) -> List[Job]:
         if TelegramClient is None:
             raise RuntimeError("Telethon is not installed; Telegram source is unavailable")
 
@@ -280,11 +295,15 @@ class TelegramSearch(JobSource):
         api_hash = os.environ["TELEGRAM_API_HASH"]
 
         state = self._load_state()
-        client = TelegramClient("job_hunter_session", api_id, api_hash)
+        client = TelegramClient(self._get_session_file(), api_id, api_hash)
 
         jobs = []
 
-        await client.start()
+        await client.connect()
+        if not await client.is_user_authorized():
+            logger.warning("Telegram session is not authenticated; Telegram skipped")
+            await client.disconnect()
+            return []
 
         try:
             for channel in self._channels:
@@ -296,21 +315,33 @@ class TelegramSearch(JobSource):
                 last_id = state.get(username, 0)
                 newest_id = last_id
 
-                async for message in client.iter_messages(
-                    username,
-                    limit=channel.get("limit", limit),
-                ):
-                    if message.id <= last_id:
-                        continue
+                try:
+                    async for message in client.iter_messages(
+                        username,
+                        limit=channel.get("limit", limit),
+                    ):
+                        newest_id = max(newest_id, message.id)
 
-                    newest_id = max(newest_id, message.id)
+                        job = self._parse(message, channel_name, username)
 
-                    job = self._parse(message, channel_name, username)
-
-                    if job:
-                        jobs.append(job)
-
-                state[username] = newest_id
+                        query_terms = [term for term in query.lower().split() if term]
+                        location_match = not location or location.lower() in (
+                            job.location.lower() if job else ""
+                        )
+                        query_match = not query_terms or (
+                            job is not None
+                            and all(
+                                term in (
+                                    f"{job.title} {job.company} {job.description}"
+                                ).lower()
+                                for term in query_terms
+                            )
+                        )
+                        if job and query_match and location_match:
+                            jobs.append(job)
+                    state[username] = newest_id
+                except Exception as exc:
+                    logger.warning("Telegram channel %s failed: %s", username, exc)
 
         finally:
             await client.disconnect()
@@ -351,7 +382,7 @@ class TelegramSearch(JobSource):
                 )
                 return []
             
-            return asyncio.run(self._fetch(limit))
+            return asyncio.run(self._fetch(query, location, limit))
         except Exception as e:
             logger.warning(f"Telegram fetch failed: {e}")
             return []

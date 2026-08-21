@@ -35,7 +35,7 @@
 6. **Configuration**
    - Disabled by default in `sources.yaml`
    - telegram.yaml configures job channels
-   - Persistent session: `job_hunter_session.session`
+   - Persistent project-root session: `job_hunter_session.session`
    - TELEGRAM_API_ID and TELEGRAM_API_HASH env vars (optional)
 
 7. **Unified Pipeline Integration**
@@ -144,4 +144,4 @@ Real Telegram connectivity could not be tested because:
 
 ---
 
-**Status**: ✅ Complete, tested, integrated, production-ready
+**Status**: ✅ Complete and tested. Real Telegram connectivity requires configured credentials and an authorized session.

@@ -120,7 +120,7 @@ Telegram is fully optional and integrated into the unified pipeline as just anot
 ### Why Telegram is optional
 
 - Normal job search works perfectly without Telegram enabled
-- Telegram requires Telethon library (already included in requirements)
+- Telegram uses the optional Telethon library when it is available
 - Telegram requires API credentials (API_ID, API_HASH)
 - Telegram requires a persistent session after first authentication
 - Default configuration has Telegram disabled to avoid auth prompts
@@ -158,11 +158,12 @@ Telegram is fully optional and integrated into the unified pipeline as just anot
    telegram: { enabled: true }
    ```
 
-5. **First-time authentication:**
-   When you first enable Telegram, Telethon will prompt for your phone number.
-   - For Telegram bots: provide the bot token
-   - For user accounts: provide the phone number and verification code
-   - The session is saved in `job_hunter_session.session` and reused automatically
+5. **Authenticate the session:**
+   The first authenticated Telethon session must be created separately with your
+   normal Telethon login flow. Hirevia connects only when that session is already
+   authorized, so a dashboard search never hangs waiting for phone/code input.
+   The session is saved at the project root as `job_hunter_session.session` and
+   reused automatically from both the project root and `dashboard/`.
 
 ### How Telegram works
 
@@ -183,7 +184,7 @@ If Telegram fails:
 
 ### Session management
 
-- Session file: `job_hunter_session.session` (auto-created on first auth)
+- Session file: `job_hunter_session.session` (project root)
 - Session file is in `.gitignore` (never committed)
 - Session is reused automatically (no re-auth needed on every search)
 - To force re-authentication: delete `job_hunter_session.session`

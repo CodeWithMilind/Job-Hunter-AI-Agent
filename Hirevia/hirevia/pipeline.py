@@ -23,12 +23,22 @@ logger = logging.getLogger(__name__)
 
 
 def deduplicate_jobs(jobs: List[Job]) -> List[Job]:
-    """Deduplicate by normalized title + company while preserving Telegram jobs."""
+    """Deduplicate normal jobs by title/company and Telegram by stable identity."""
     seen = set()
+    seen_telegram = set()
     unique: List[Job] = []
     for job in jobs:
         if job.source == "Telegram":
-            unique.append(job)
+            metadata = job.source_metadata or {}
+            identity = (
+                metadata.get("telegram_message_url")
+                or job.url
+                or metadata.get("telegram_message_id")
+                or f"{job.title}|{job.company}"
+            ).lower().strip()
+            if identity not in seen_telegram:
+                seen_telegram.add(identity)
+                unique.append(job)
             continue
         key = (job.title.lower().strip(), job.company.lower().strip())
         if key not in seen:

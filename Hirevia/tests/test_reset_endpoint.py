@@ -4,21 +4,44 @@ import sys
 sys.path.insert(0, ".")
 sys.path.insert(0, "dashboard")
 
-import os
-from fastapi.testclient import TestClient
+import asyncio
+import httpx
 import dashboard.app as app_mod
 import dashboard.database as db
 
+
+class _ASGITestClient:
+    """Small sync wrapper around HTTPX's installed ASGI transport."""
+
+    def __init__(self, application):
+        self.application = application
+
+    def _request(self, method, url, **kwargs):
+        async def request():
+            transport = httpx.ASGITransport(app=self.application)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                return await client.request(method, url, **kwargs)
+
+        return asyncio.run(request())
+
+    def post(self, url, **kwargs):
+        return self._request("POST", url, **kwargs)
+
+    def get(self, url, **kwargs):
+        return self._request("GET", url, **kwargs)
+
 def test_reset_endpoint_exists():
     """Verify the /api/reset endpoint is registered."""
-    client = TestClient(app_mod.app)
+    client = _ASGITestClient(app_mod.app)
     resp = client.post('/api/reset', json={})
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
     print("✓ /api/reset endpoint is registered and responds with 200")
 
 def test_reset_deletes_all_jobs():
     """Verify reset deletes all job records."""
-    client = TestClient(app_mod.app)
+    client = _ASGITestClient(app_mod.app)
     
     # Search to populate database
     resp1 = client.post('/api/search/jobs', json={
@@ -55,7 +78,7 @@ def test_reset_deletes_all_jobs():
 
 def test_reset_clears_cache():
     """Verify reset allows previously seen jobs to reappear."""
-    client = TestClient(app_mod.app)
+    client = _ASGITestClient(app_mod.app)
     
     # First search
     resp1 = client.post('/api/search/jobs', json={
@@ -86,7 +109,7 @@ def test_reset_clears_cache():
 
 def test_reset_preserves_configuration():
     """Verify reset only deletes jobs, not configuration."""
-    client = TestClient(app_mod.app)
+    client = _ASGITestClient(app_mod.app)
     
     # Get sources before reset
     sources_before = client.get('/api/sources').json()
@@ -105,7 +128,7 @@ def test_reset_preserves_configuration():
 
 def test_reset_response_format():
     """Verify reset returns correct JSON response."""
-    client = TestClient(app_mod.app)
+    client = _ASGITestClient(app_mod.app)
     
     resp = client.post('/api/reset', json={})
     data = resp.json()

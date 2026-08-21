@@ -45,6 +45,15 @@ class SeenJobsCache:
         self.conn.commit()
 
     def _make_key(self, job: Job) -> tuple:
+        if job.source.lower().strip() == "telegram":
+            metadata = job.source_metadata or {}
+            identity = (
+                metadata.get("telegram_message_url")
+                or job.url
+                or metadata.get("telegram_message_id")
+            )
+            if identity:
+                return (identity.lower().strip(), "", "telegram")
         return (
             job.title.lower().strip(),
             job.company.lower().strip(),
