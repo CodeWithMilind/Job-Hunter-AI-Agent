@@ -1,0 +1,5 @@
+channels:
+  - name: "Test Job Channel"
+    username: "@freshershunt"
+    enabled: true
+    limit: 20

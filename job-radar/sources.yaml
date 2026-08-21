@@ -9,3 +9,4 @@ sources:
   greenhouse: { enabled: true }
   ashby: { enabled: true }
   linkedin: { enabled: false }
+  telegram: { enabled: true }
