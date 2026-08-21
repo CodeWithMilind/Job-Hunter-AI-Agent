@@ -34,4 +34,4 @@ jobs:
 
       - name: Verify CLI loads
         run: |
-          python -m jobradar --help
+          python -m hirevia --help

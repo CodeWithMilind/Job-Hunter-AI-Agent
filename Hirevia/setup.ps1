@@ -305,7 +305,7 @@ if ($useOllama) {
             $latestTag = $release.tag_name
         } catch {
             try {
-                $headers = @{ "User-Agent" = "JobRadar-Setup" }
+                $headers = @{ "User-Agent" = "hirevia-Setup" }
                 $response = Invoke-WebRequest -Uri "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest" -Headers $headers -TimeoutSec 10 -UseBasicParsing
                 $json = $response.Content | ConvertFrom-Json
                 $latestTag = $json.tag_name
@@ -442,7 +442,7 @@ $companiesPath = Join-Path $ScriptDir "companies.yaml"
 if (Test-Path $companiesPath) {
     Skip "companies.yaml exists"
 } else {
-    Warn "companies.yaml not found - using defaults in jobradar/sources/"
+    Warn "companies.yaml not found - using defaults in hirevia/sources/"
 }
 
 # ── Done ────────────────────────────────────────────────────────────────────
@@ -456,16 +456,16 @@ Write-Host "    cd $ScriptDir"
 Write-Host "    . .venv\Scripts\Activate.ps1"
 Write-Host ""
 Write-Host "  CLI search (no AI - fast):"
-Write-Host "    python -m jobradar -q `"python developer`" --no-ai"
+Write-Host "    python -m hirevia -q `"python developer`" --no-ai"
 Write-Host ""
 Write-Host "  CLI search (with AI scoring):"
 if ($useOllama) {
     Write-Host "    # Make sure Ollama is running: ollama serve"
-    Write-Host "    python -m jobradar -q `"python developer`" -p profile.yaml"
+    Write-Host "    python -m hirevia -q `"python developer`" -p profile.yaml"
 } else {
     Write-Host "    # Start llama-server first:"
     Write-Host "    $llamaBin --model $ModelFile --port 8080 --host 0.0.0.0"
-    Write-Host "    python -m jobradar -q `"python developer`" -p profile.yaml"
+    Write-Host "    python -m hirevia -q `"python developer`" -p profile.yaml"
 }
 Write-Host ""
 Write-Host "  Web dashboard:"

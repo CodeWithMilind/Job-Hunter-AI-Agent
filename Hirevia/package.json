@@ -1,12 +1,12 @@
 {
-  "name": "jobradar",
+  "name": "hirevia",
   "version": "1.0.0",
   "description": "Hirevia — AI-Powered Job & Opportunity Discovery — searches 8+ sources, scores with local LLM",
   "scripts": {
     "setup": "node -e \"const p=process.platform; if(p==='win32'){require('child_process').execSync('powershell -ExecutionPolicy Bypass -File setup.ps1',{stdio:'inherit'})}else{require('child_process').execSync('bash setup.sh',{stdio:'inherit'})}\"",
     "start": "npm run setup && node -e \"const p=process.platform; if(p==='win32'){require('child_process').execSync('cd dashboard && python -m uvicorn app:app --port 3000',{stdio:'inherit',shell:true})}else{require('child_process').execSync('cd dashboard && bash run.sh',{stdio:'inherit',shell:true})}\"",
     "dashboard": "node -e \"const p=process.platform; if(p==='win32'){require('child_process').execSync('python -m uvicorn app:app --port 3000',{stdio:'inherit',cwd:'dashboard',shell:true})}else{require('child_process').execSync('bash run.sh',{stdio:'inherit',cwd:'dashboard',shell:true})}\"",
-    "search": "python -m jobradar"
+    "search": "python -m hirevia"
   },
   "keywords": ["job-search", "ai", "llm", "cli", "dashboard", "greenhouse", "ashby"],
   "author": "Anirudh",
@@ -20,7 +20,7 @@
     "requirements.txt",
     "companies.yaml",
     "README.md",
-    "jobradar/",
+    "hirevia/",
     "dashboard/"
   ]
 }

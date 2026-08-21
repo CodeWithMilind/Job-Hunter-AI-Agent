@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# Make sure jobradar package is importable
+# Make sure hirevia package is importable
 _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
@@ -23,7 +23,7 @@ if _project_root not in sys.path:
 import database as db
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("jobradar-dashboard")
+logger = logging.getLogger("hirevia-dashboard")
 
 app = FastAPI(title="Hirevia Dashboard", version="1.0.0")
 
@@ -125,7 +125,7 @@ def get_stats():
 @app.get("/api/sources")
 def get_sources():
     """List configured resources together with their latest fetch status."""
-    from jobradar.sources import SourceRegistry
+    from hirevia.sources import SourceRegistry
     registry = SourceRegistry.from_yaml(os.path.join(_project_root, "sources.yaml"))
     previous = {item["source_id"]: item for item in db.get_source_status()}
     sources = []
@@ -158,7 +158,7 @@ def trigger_search(req: SearchRequest, background_tasks: BackgroundTasks):
 
 
 def _run_search(query: str, location: str, limit: int, no_ai: bool):
-    """Background search task that imports and runs jobradar sources."""
+    """Background search task that imports and runs hirevia sources."""
     _search_state["running"] = True
     _search_state["progress"] = 0
     _search_state["message"] = f"Searching for '{query}'..."
@@ -166,7 +166,7 @@ def _run_search(query: str, location: str, limit: int, no_ai: bool):
     db.log_activity("info", f"🔍 Search started: '{query}'", f"location={location}, limit={limit}")
 
     try:
-        from jobradar.sources import SourceRegistry
+        from hirevia.sources import SourceRegistry
 
         companies_path = os.path.join(_project_root, "companies.yaml")
 
@@ -215,8 +215,8 @@ def _run_search(query: str, location: str, limit: int, no_ai: bool):
         # AI Rating (optional)
         if not no_ai:
             try:
-                from jobradar.rating import AIRater, LLM_URL, LLM_MODEL
-                from jobradar.models import Profile
+                from hirevia.rating import AIRater, LLM_URL, LLM_MODEL
+                from hirevia.models import Profile
 
                 rater = AIRater()
                 if rater.available:

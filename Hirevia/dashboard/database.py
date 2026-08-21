@@ -8,9 +8,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from jobradar.eligibility import INDIA_ELIGIBLE, UNKNOWN, classify_india_eligibility
+from hirevia.eligibility import INDIA_ELIGIBLE, UNKNOWN, classify_india_eligibility
 
-DB_PATH = os.environ.get("JOBRADAR_DB", os.path.join(os.path.dirname(__file__), "jobradar_dashboard.db"))
+DB_PATH = os.environ.get("hirevia_DB", os.path.join(os.path.dirname(__file__), "hirevia_dashboard.db"))
 
 VALID_STATUSES = [
     "discovered",

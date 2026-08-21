@@ -4,7 +4,7 @@
 # Usage:
 #   .\uninstall.ps1              # remove app, venv, models, cache (keeps configs)
 #   .\uninstall.ps1 -Purge       # also delete profile.yaml / companies.yaml / results
-#   .\uninstall.ps1 -KeepCache   # keep the $HOME\.jobradar seen-jobs cache
+#   .\uninstall.ps1 -KeepCache   # keep the $HOME\.hirevia seen-jobs cache
 #
 
 param(
@@ -16,7 +16,7 @@ param(
 if ($Help) {
     Write-Host "Usage: .\uninstall.ps1 [-Purge] [-KeepCache]"
     Write-Host "  -Purge        also delete profile.yaml, companies.yaml, results"
-    Write-Host "  -KeepCache    keep the ~/.jobradar seen-jobs cache"
+    Write-Host "  -KeepCache    keep the ~/.hirevia seen-jobs cache"
     exit 0
 }
 
@@ -50,7 +50,7 @@ Get-ChildItem -Path $ScriptDir -Directory -Filter "__pycache__" -Recurse -ErrorA
 Write-Host "  [OK] Removed __pycache__ directories" -ForegroundColor Green
 
 # 4. Dashboard database
-$db = Join-Path $ScriptDir "dashboard\jobradar_dashboard.db"
+$db = Join-Path $ScriptDir "dashboard\hirevia_dashboard.db"
 if (Test-Path $db) {
     Remove-Item -Force $db
     Write-Host "  [OK] Removed dashboard database" -ForegroundColor Green
@@ -60,19 +60,19 @@ if (Test-Path $db) {
 
 # 5. Seen-jobs cache (unless -KeepCache)
 if (-not $KeepCache) {
-    $cacheDir = Join-Path $HOME ".jobradar"
+    $cacheDir = Join-Path $HOME ".hirevia"
     $cacheDb  = Join-Path $cacheDir "seen_jobs.db"
     if (Test-Path $cacheDb) {
         Remove-Item -Force $cacheDb
         if ((Get-ChildItem $cacheDir -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
             Remove-Item -Force $cacheDir
         }
-        Write-Host "  [OK] Removed ~/.jobradar seen-jobs cache" -ForegroundColor Green
+        Write-Host "  [OK] Removed ~/.hirevia seen-jobs cache" -ForegroundColor Green
     } else {
-        Write-Host "  [>>] No ~/.jobradar cache found" -ForegroundColor Yellow
+        Write-Host "  [>>] No ~/.hirevia cache found" -ForegroundColor Yellow
     }
 } else {
-    Write-Host "  [>>] Keeping ~/.jobradar cache (-KeepCache)" -ForegroundColor Yellow
+    Write-Host "  [>>] Keeping ~/.hirevia cache (-KeepCache)" -ForegroundColor Yellow
 }
 
 # 6. Config files (only with -Purge)

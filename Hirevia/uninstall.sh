@@ -6,7 +6,7 @@
 # Usage:
 #   bash uninstall.sh            # remove app, venv, models, cache (keeps configs)
 #   bash uninstall.sh --purge    # also delete profile.yaml / companies.yaml / results
-#   bash uninstall.sh --keep-cache  # keep ~/.jobradar seen-jobs cache
+#   bash uninstall.sh --keep-cache  # keep ~/.hirevia seen-jobs cache
 #
 
 set -euo pipefail
@@ -22,7 +22,7 @@ for arg in "$@"; do
         -h|--help)
             echo "Usage: bash uninstall.sh [--purge] [--keep-cache]"
             echo "  --purge        also delete profile.yaml, companies.yaml, results"
-            echo "  --keep-cache   keep the ~/.jobradar seen-jobs cache"
+            echo "  --keep-cache   keep the ~/.hirevia seen-jobs cache"
             exit 0
             ;;
         *)
@@ -62,8 +62,8 @@ find "$SCRIPT_DIR" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/n
 echo "  [OK] Removed __pycache__ directories"
 
 # 4. Dashboard database
-if [ -f "$SCRIPT_DIR/dashboard/jobradar_dashboard.db" ]; then
-    rm -f "$SCRIPT_DIR/dashboard/jobradar_dashboard.db"
+if [ -f "$SCRIPT_DIR/dashboard/hirevia_dashboard.db" ]; then
+    rm -f "$SCRIPT_DIR/dashboard/hirevia_dashboard.db"
     echo "  [OK] Removed dashboard database"
 else
     echo "  [>>] No dashboard database found"
@@ -71,15 +71,15 @@ fi
 
 # 5. Seen-jobs cache (unless --keep-cache)
 if ! $KEEP_CACHE; then
-    if [ -f "$HOME/.jobradar/seen_jobs.db" ]; then
-        rm -f "$HOME/.jobradar/seen_jobs.db"
-        rmdir "$HOME/.jobradar" 2>/dev/null || true
-        echo "  [OK] Removed ~/.jobradar seen-jobs cache"
+    if [ -f "$HOME/.hirevia/seen_jobs.db" ]; then
+        rm -f "$HOME/.hirevia/seen_jobs.db"
+        rmdir "$HOME/.hirevia" 2>/dev/null || true
+        echo "  [OK] Removed ~/.hirevia seen-jobs cache"
     else
-        echo "  [>>] No ~/.jobradar cache found"
+        echo "  [>>] No ~/.hirevia cache found"
     fi
 else
-    echo "  [>>] Keeping ~/.jobradar cache (--keep-cache)"
+    echo "  [>>] Keeping ~/.hirevia cache (--keep-cache)"
 fi
 
 # 6. Config files (only with --purge)

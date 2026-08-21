@@ -29,32 +29,32 @@ So use the scores as a starting point, not a verdict.
 ### Option 1: One-liner (Linux / macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ANIRudH-lab-life/job-radar/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ANIRudH-lab-life/hire-via/main/setup.sh | bash
 ```
 
 ### Option 2: npm (all platforms)
 
 ```bash
-npx jobradar-setup
+npx hirevia-setup
 # or
-git clone https://github.com/ANIRudH-lab-life/job-radar.git
-cd job-radar
+git clone https://github.com/ANIRudH-lab-life/hire-via.git
+cd hire-via
 npm run setup
 ```
 
 ### Option 3: PowerShell (Windows)
 
 ```powershell
-git clone https://github.com/ANIRudH-lab-life/job-radar.git
-cd job-radar
+git clone https://github.com/ANIRudH-lab-life/hire-via.git
+cd hire-via
 .\setup.ps1
 ```
 
 ### Option 4: Manual
 
 ```bash
-git clone https://github.com/ANIRudH-lab-life/job-radar.git
-cd job-radar
+git clone https://github.com/ANIRudH-lab-life/hire-via.git
+cd hire-via
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -91,17 +91,17 @@ The installer asks which LLM backend you prefer:
 ## Quick Start
 
 ```bash
-cd job-radar
+cd hire-via
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 # Quick search (no AI — fast)
-python -m jobradar -q "python developer" --no-ai
+python -m hirevia -q "python developer" --no-ai
 
 # Search with AI rating (needs a local LLM running)
-python -m jobradar -q "python developer" -p profile.yaml
+python -m hirevia -q "python developer" -p profile.yaml
 
 # Interactive mode — just run it and type queries
-python -m jobradar
+python -m hirevia
 
 # Web dashboard
 cd dashboard && bash run.sh   # Windows: python -m uvicorn app:app --port 3000
@@ -110,11 +110,11 @@ cd dashboard && bash run.sh   # Windows: python -m uvicorn app:app --port 3000
 # Start the LLM server (for AI scoring)
 # Option A: Ollama (recommended)
 ollama serve &                              # if not already running
-python -m jobradar -q "python dev" -p profile.yaml
+python -m hirevia -q "python dev" -p profile.yaml
 
 # Option B: llama.cpp (faster)
 llama-server --model models/qwen3-1.7b-q4_k_m.gguf --port 8080
-python -m jobradar -q "python dev" -p profile.yaml
+python -m hirevia -q "python dev" -p profile.yaml
 ```
 
 ## Job Sources & Resources
@@ -150,7 +150,7 @@ Every collected job retains its source name, source type, original source URL, a
 
 ### Adding a future source
 
-Add a `JobSource` implementation with `source_id`, `name`, `source_type`, `enabled`, `metadata`, and `fetch()`, then register it from `jobradar/sources/registry.py`. Valid types are `API`, `RSS`, `Career Portal`, `Company Career Page`, `Telegram`, and `Custom`. The registry's `fetch_safely()` wrapper handles errors and attaches standard metadata. Telegram, RSS, and custom URL sources are intentionally only prepared by this architecture; no Telegram or WhatsApp scraping is implemented.
+Add a `JobSource` implementation with `source_id`, `name`, `source_type`, `enabled`, `metadata`, and `fetch()`, then register it from `hirevia/sources/registry.py`. Valid types are `API`, `RSS`, `Career Portal`, `Company Career Page`, `Telegram`, and `Custom`. The registry's `fetch_safely()` wrapper handles errors and attaches standard metadata. Telegram, RSS, and custom URL sources are intentionally only prepared by this architecture; no Telegram or WhatsApp scraping is implemented.
 
 ## Profile Setup
 
@@ -193,17 +193,17 @@ ashby:
 
 ## Caching
 
-Hirevia remembers jobs you've already seen so you don't re-review them on every run. By default, it keeps a 7-day cache in `~/.jobradar/seen_jobs.db`.
+Hirevia remembers jobs you've already seen so you don't re-review them on every run. By default, it keeps a 7-day cache in `~/.hirevia/seen_jobs.db`.
 
 ```bash
 # Change cache duration to 30 days
-python -m jobradar -q "python" --cache-days 30
+python -m hirevia -q "python" --cache-days 30
 
 # Skip the cache entirely
-python -m jobradar -q "python" --no-cache
+python -m hirevia -q "python" --no-cache
 
 # Clear the cache
-python -m jobradar --clear-cache
+python -m hirevia --clear-cache
 ```
 
 ## Web Dashboard
@@ -260,19 +260,19 @@ ollama pull qwen3:8b          # larger, better reasoning, slower
 ollama pull qwen2.5:1.5b      # smaller, faster, less accurate
 
 # Use it with Hirevia
-python -m jobradar -q "python dev" --llm-model qwen3:8b
+python -m hirevia -q "python dev" --llm-model qwen3:8b
 ```
 
 Or set it permanently in your environment:
 ```bash
 export LLM_MODEL="qwen3:8b"
-python -m jobradar -q "python dev"
+python -m hirevia -q "python dev"
 ```
 
 ## Architecture
 
 ```
-job-radar/
+hire-via/
 ├── setup.sh              # Smart installer (Linux/macOS)
 ├── setup.ps1             # Smart installer (Windows)
 ├── uninstall.sh          # Uninstaller (Linux/macOS)
@@ -281,7 +281,7 @@ job-radar/
 ├── profile.yaml          # Your profile (edit this)
 ├── companies.yaml        # ATS company slugs (edit this)
 ├── sources.yaml          # Enable/disable configured job resources
-├── jobradar/
+├── hirevia/
 │   ├── models.py         # Job and Profile dataclasses
 │   ├── rating.py         # Local LLM rating with retry logic
 │   ├── cache.py          # SQLite seen-jobs cache
@@ -319,7 +319,7 @@ The AI scoring is there to save you time reading through listings, not to tell y
 LinkedIn scraping is **off by default**. It depends on undocumented HTML that breaks constantly and might violate their ToS. We keep it around because sometimes it's useful, but we'd rather you know the tradeoff:
 
 ```bash
-python -m jobradar -q "python dev" --enable-linkedin
+python -m hirevia -q "python dev" --enable-linkedin
 ```
 
 ## Uninstalling
@@ -339,7 +339,7 @@ Options:
 | Flag | What it does |
 |------|-------------|
 | `--purge` / `-Purge` | Also delete `profile.yaml`, `companies.yaml`, `results.csv`, `results.json` |
-| `--keep-cache` / `-KeepCache` | Keep the `~/.jobradar` seen-jobs cache |
+| `--keep-cache` / `-KeepCache` | Keep the `~/.hirevia` seen-jobs cache |
 
 Safe to re-run — a second run just reports what's already gone. Uninstalling does **not** remove Ollama or the models you pulled into it; those are managed separately (`ollama rm qwen3:1.7b` if you want them gone).
 

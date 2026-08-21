@@ -5,7 +5,7 @@
     **LinkedIn ToS risk**: This source depends on undocumented HTML markup and
     may violate LinkedIn's Terms of Service.  It is **disabled by default**
     and must be explicitly enabled via ``--enable-linkedin`` or
-    ``JOBRADAR_ENABLE_LINKEDIN=1``.  Use at your own risk.
+    ``hirevia_ENABLE_LINKEDIN=1``.  Use at your own risk.
 """
 
 import logging
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def is_linkedin_enabled() -> bool:
     """Check if LinkedIn scraping is allowed by feature flag."""
-    val = os.environ.get("JOBRADAR_ENABLE_LINKEDIN", "0")
+    val = os.environ.get("hirevia_ENABLE_LINKEDIN", "0")
     return val not in ("0", "false", "False", "no", "")
 
 

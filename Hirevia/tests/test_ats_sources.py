@@ -9,55 +9,55 @@ from unittest.mock import patch, MagicMock
 import pytest
 import yaml
 
-from jobradar.models import Job, Profile
+from hirevia.models import Job, Profile
 
 
 # ─── Greenhouse normalization ──────────────────────────────────────────────
 
 class TestGreenhouseDateNormalization:
     def test_iso_with_offset(self):
-        from jobradar.sources.greenhouse import _parse_greenhouse_date
+        from hirevia.sources.greenhouse import _parse_greenhouse_date
         assert _parse_greenhouse_date("2026-07-20T14:30:00-05:00") == "2026-07-20"
 
     def test_iso_utc(self):
-        from jobradar.sources.greenhouse import _parse_greenhouse_date
+        from hirevia.sources.greenhouse import _parse_greenhouse_date
         assert _parse_greenhouse_date("2026-01-01T00:00:00Z") == "2026-01-01"
 
     def test_date_only(self):
-        from jobradar.sources.greenhouse import _parse_greenhouse_date
+        from hirevia.sources.greenhouse import _parse_greenhouse_date
         assert _parse_greenhouse_date("2026-07-20") == "2026-07-20"
 
     def test_empty(self):
-        from jobradar.sources.greenhouse import _parse_greenhouse_date
+        from hirevia.sources.greenhouse import _parse_greenhouse_date
         assert _parse_greenhouse_date(None) == ""
         assert _parse_greenhouse_date("") == ""
 
     def test_garbage(self):
-        from jobradar.sources.greenhouse import _parse_greenhouse_date
+        from hirevia.sources.greenhouse import _parse_greenhouse_date
         assert _parse_greenhouse_date("not a date") == ""
 
 
 class TestGreenhouseRemoteDetection:
     def test_remote_in_location(self):
-        from jobradar.sources.greenhouse import _detect_remote
+        from hirevia.sources.greenhouse import _detect_remote
         assert _detect_remote({"location": {"name": "Remote - US"}}) is True
 
     def test_remote_in_title(self):
-        from jobradar.sources.greenhouse import _detect_remote
+        from hirevia.sources.greenhouse import _detect_remote
         assert _detect_remote({"title": "Remote Python Developer"}) is True
 
     def test_not_remote(self):
-        from jobradar.sources.greenhouse import _detect_remote
+        from hirevia.sources.greenhouse import _detect_remote
         assert _detect_remote({"location": {"name": "San Francisco, CA"}, "title": "Software Engineer"}) is False
 
     def test_empty(self):
-        from jobradar.sources.greenhouse import _detect_remote
+        from hirevia.sources.greenhouse import _detect_remote
         assert _detect_remote({}) is False
 
 
 class TestGreenhouseJobNormalization:
     def test_basic_job(self):
-        from jobradar.sources.greenhouse import _normalize_job
+        from hirevia.sources.greenhouse import _normalize_job
         data = {
             "id": 12345,
             "title": "Python Developer",
@@ -77,12 +77,12 @@ class TestGreenhouseJobNormalization:
         assert "12345" in job.url
 
     def test_empty_title_skipped(self):
-        from jobradar.sources.greenhouse import _normalize_job
+        from hirevia.sources.greenhouse import _normalize_job
         assert _normalize_job({"title": ""}, "test") is None
         assert _normalize_job({}, "test") is None
 
     def test_salary_extraction(self):
-        from jobradar.sources.greenhouse import _normalize_job
+        from hirevia.sources.greenhouse import _normalize_job
         data = {
             "id": 1,
             "title": "Eng",
@@ -95,7 +95,7 @@ class TestGreenhouseJobNormalization:
 
 
 class TestGreenhouseSearch:
-    @patch("jobradar.sources.greenhouse.requests.get")
+    @patch("hirevia.sources.greenhouse.requests.get")
     def test_search_filters_by_query(self, mock_get, tmp_path):
         companies_file = tmp_path / "companies.yaml"
         companies_file.write_text(yaml.dump({"greenhouse": ["testcorp"]}))
@@ -111,22 +111,22 @@ class TestGreenhouseSearch:
                  "departments": [], "updated_at": "2026-07-01"},
             ]}
         )
-        from jobradar.sources.greenhouse import GreenhouseSearch
+        from hirevia.sources.greenhouse import GreenhouseSearch
         jobs = GreenhouseSearch.search("python", companies_path=str(companies_file))
         assert len(jobs) == 2
         assert all("python" in j.title.lower() for j in jobs)
 
-    @patch("jobradar.sources.greenhouse.requests.get")
+    @patch("hirevia.sources.greenhouse.requests.get")
     def test_search_handles_error(self, mock_get, tmp_path):
         companies_file = tmp_path / "companies.yaml"
         companies_file.write_text(yaml.dump({"greenhouse": ["testcorp"]}))
         mock_get.side_effect = Exception("timeout")
-        from jobradar.sources.greenhouse import GreenhouseSearch
+        from hirevia.sources.greenhouse import GreenhouseSearch
         jobs = GreenhouseSearch.search("python", companies_path=str(companies_file))
         assert jobs == []
 
     def test_missing_companies_file(self):
-        from jobradar.sources.greenhouse import GreenhouseSearch
+        from hirevia.sources.greenhouse import GreenhouseSearch
         jobs = GreenhouseSearch.search("python", companies_path="/nonexistent.yaml")
         assert jobs == []
 
@@ -135,65 +135,65 @@ class TestGreenhouseSearch:
 
 class TestAshbyDateNormalization:
     def test_iso_with_millis(self):
-        from jobradar.sources.ashby import _parse_ashby_date
+        from hirevia.sources.ashby import _parse_ashby_date
         assert _parse_ashby_date("2026-07-20T19:30:12.000Z") == "2026-07-20"
 
     def test_iso_utc(self):
-        from jobradar.sources.ashby import _parse_ashby_date
+        from hirevia.sources.ashby import _parse_ashby_date
         assert _parse_ashby_date("2026-07-20T19:30:12Z") == "2026-07-20"
 
     def test_date_only(self):
-        from jobradar.sources.ashby import _parse_ashby_date
+        from hirevia.sources.ashby import _parse_ashby_date
         assert _parse_ashby_date("2026-07-20") == "2026-07-20"
 
     def test_empty(self):
-        from jobradar.sources.ashby import _parse_ashby_date
+        from hirevia.sources.ashby import _parse_ashby_date
         assert _parse_ashby_date(None) == ""
         assert _parse_ashby_date("") == ""
 
 
 class TestAshbyEmploymentNormalization:
     def test_full_time_variants(self):
-        from jobradar.sources.ashby import _normalize_employment_type
+        from hirevia.sources.ashby import _normalize_employment_type
         assert _normalize_employment_type("full_time") == "Full-time"
         assert _normalize_employment_type("full-time") == "Full-time"
         assert _normalize_employment_type("fulltime") == "Full-time"
 
     def test_part_time(self):
-        from jobradar.sources.ashby import _normalize_employment_type
+        from hirevia.sources.ashby import _normalize_employment_type
         assert _normalize_employment_type("part_time") == "Part-time"
 
     def test_contract(self):
-        from jobradar.sources.ashby import _normalize_employment_type
+        from hirevia.sources.ashby import _normalize_employment_type
         assert _normalize_employment_type("contract") == "Contract"
 
     def test_empty(self):
-        from jobradar.sources.ashby import _normalize_employment_type
+        from hirevia.sources.ashby import _normalize_employment_type
         assert _normalize_employment_type(None) == ""
         assert _normalize_employment_type("") == ""
 
     def test_unknown_passthrough(self):
-        from jobradar.sources.ashby import _normalize_employment_type
+        from hirevia.sources.ashby import _normalize_employment_type
         assert _normalize_employment_type("freelance") == "Freelance"
 
 
 class TestAshbyRemoteDetection:
     def test_remote_in_constraints(self):
-        from jobradar.sources.ashby import _detect_remote
+        from hirevia.sources.ashby import _detect_remote
         assert _detect_remote({"locationConstraints": [{"location": "Remote"}]}) is True
 
     def test_remote_in_title(self):
-        from jobradar.sources.ashby import _detect_remote
+        from hirevia.sources.ashby import _detect_remote
         assert _detect_remote({"title": "Remote Engineer"}) is True
 
     def test_not_remote(self):
-        from jobradar.sources.ashby import _detect_remote
+        from hirevia.sources.ashby import _detect_remote
         assert _detect_remote({"title": "Engineer", "locationConstraints": [{"location": "NYC"}]}) is False
 
 
 class TestAshbyJobNormalization:
     def test_basic_job(self):
-        from jobradar.sources.ashby import _normalize_job
+        from hirevia.sources.ashby import _normalize_job
         data = {
             "id": "abc-123",
             "title": "AI Engineer",
@@ -216,11 +216,11 @@ class TestAshbyJobNormalization:
         assert job.url == "https://jobs.ashbyhq.com/openai/apply/123"
 
     def test_empty_title_skipped(self):
-        from jobradar.sources.ashby import _normalize_job
+        from hirevia.sources.ashby import _normalize_job
         assert _normalize_job({"title": ""}, "test") is None
 
     def test_salary_extraction(self):
-        from jobradar.sources.ashby import _normalize_job
+        from hirevia.sources.ashby import _normalize_job
         data = {
             "id": "1",
             "title": "Eng",
@@ -233,7 +233,7 @@ class TestAshbyJobNormalization:
 
 
 class TestAshbySearch:
-    @patch("jobradar.sources.ashby.requests.get")
+    @patch("hirevia.sources.ashby.requests.get")
     def test_search_filters_by_query(self, mock_get, tmp_path):
         companies_file = tmp_path / "companies.yaml"
         companies_file.write_text(yaml.dump({"ashby": ["testcorp"]}))
@@ -245,17 +245,17 @@ class TestAshbySearch:
                 {"id": "2", "title": "Marketing Manager", "locationConstraints": []},
             ]}
         )
-        from jobradar.sources.ashby import AshbySearch
+        from hirevia.sources.ashby import AshbySearch
         jobs = AshbySearch.search("python", companies_path=str(companies_file))
         assert len(jobs) == 1
         assert jobs[0].title == "Python Developer"
 
-    @patch("jobradar.sources.ashby.requests.get")
+    @patch("hirevia.sources.ashby.requests.get")
     def test_handles_non_200(self, mock_get, tmp_path):
         companies_file = tmp_path / "companies.yaml"
         companies_file.write_text(yaml.dump({"ashby": ["testcorp"]}))
         mock_get.return_value = MagicMock(status_code=404)
-        from jobradar.sources.ashby import AshbySearch
+        from hirevia.sources.ashby import AshbySearch
         jobs = AshbySearch.search("python", companies_path=str(companies_file))
         assert jobs == []
 
@@ -264,7 +264,7 @@ class TestAshbySearch:
 
 class TestSeenJobsCache:
     def test_basic_cache_flow(self, tmp_path):
-        from jobradar.cache import SeenJobsCache
+        from hirevia.cache import SeenJobsCache
         db_path = str(tmp_path / "test.db")
         cache = SeenJobsCache(db_path=db_path, ttl_days=7)
 
@@ -287,7 +287,7 @@ class TestSeenJobsCache:
         cache.close()
 
     def test_partial_overlap(self, tmp_path):
-        from jobradar.cache import SeenJobsCache
+        from hirevia.cache import SeenJobsCache
         cache = SeenJobsCache(db_path=str(tmp_path / "test.db"), ttl_days=7)
 
         jobs_a = [
@@ -306,7 +306,7 @@ class TestSeenJobsCache:
         cache.close()
 
     def test_ttl_expiry(self, tmp_path):
-        from jobradar.cache import SeenJobsCache
+        from hirevia.cache import SeenJobsCache
         cache = SeenJobsCache(db_path=str(tmp_path / "test.db"), ttl_days=1)
 
         job = Job(title="X", company="Y", location="Z", url="u", source="S")
@@ -324,7 +324,7 @@ class TestSeenJobsCache:
         cache.close()
 
     def test_stats(self, tmp_path):
-        from jobradar.cache import SeenJobsCache
+        from hirevia.cache import SeenJobsCache
         cache = SeenJobsCache(db_path=str(tmp_path / "test.db"), ttl_days=7)
 
         jobs = [Job(title=str(i), company="C", location="L", url="u", source="S") for i in range(5)]
@@ -335,7 +335,7 @@ class TestSeenJobsCache:
         cache.close()
 
     def test_clear(self, tmp_path):
-        from jobradar.cache import SeenJobsCache
+        from hirevia.cache import SeenJobsCache
         cache = SeenJobsCache(db_path=str(tmp_path / "test.db"), ttl_days=7)
 
         jobs = [Job(title="X", company="Y", location="Z", url="u", source="S")]
@@ -347,7 +347,7 @@ class TestSeenJobsCache:
         cache.close()
 
     def test_context_manager(self, tmp_path):
-        from jobradar.cache import SeenJobsCache
+        from hirevia.cache import SeenJobsCache
         with SeenJobsCache(db_path=str(tmp_path / "test.db")) as cache:
             cache.mark_seen([Job(title="X", company="Y", location="Z", url="u", source="S")])
             assert cache.stats()["total_entries"] == 1

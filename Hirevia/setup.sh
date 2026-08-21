@@ -367,7 +367,7 @@ fi
 if [ -f "$SCRIPT_DIR/companies.yaml" ]; then
     skip "companies.yaml exists"
 else
-    warn "companies.yaml not found — using defaults in jobradar/sources/"
+    warn "companies.yaml not found — using defaults in hirevia/sources/"
 fi
 
 # ── Done ────────────────────────────────────────────────────────────────────
@@ -381,16 +381,16 @@ echo "    cd $SCRIPT_DIR"
 echo "    source .venv/bin/activate"
 echo ""
 echo "  CLI search (no AI — fast):"
-echo "    python -m jobradar -q 'python developer' --no-ai"
+echo "    python -m hirevia -q 'python developer' --no-ai"
 echo ""
 echo "  CLI search (with AI scoring):"
 if $USE_OLLAMA; then
     echo "    # Make sure Ollama is running: ollama serve"
-    echo "    python -m jobradar -q 'python developer' -p profile.yaml"
+    echo "    python -m hirevia -q 'python developer' -p profile.yaml"
 else
     echo "    # Start llama-server first:"
     echo "    $LLAMA_BIN --model $MODEL_FILE --port 8080 --host 0.0.0.0"
-    echo "    python -m jobradar -q 'python developer' -p profile.yaml"
+    echo "    python -m hirevia -q 'python developer' -p profile.yaml"
 fi
 echo ""
 echo "  Web dashboard:"

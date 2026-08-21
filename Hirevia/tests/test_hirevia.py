@@ -1,4 +1,4 @@
-"""Tests for jobradar — Profile, Job dedup, parsing, sources, and more."""
+"""Tests for hirevia — Profile, Job dedup, parsing, sources, and more."""
 
 import json
 import os
@@ -177,16 +177,16 @@ class TestParseResponse:
 class TestLinkedInFeatureFlag:
     def test_disabled_by_default(self):
         env = os.environ.copy()
-        env.pop("JOBRADAR_ENABLE_LINKEDIN", None)
+        env.pop("hirevia_ENABLE_LINKEDIN", None)
         with patch.dict(os.environ, env, clear=True):
             assert is_linkedin_enabled() is False
 
     def test_enabled_with_1(self):
-        with patch.dict(os.environ, {"JOBRADAR_ENABLE_LINKEDIN": "1"}):
+        with patch.dict(os.environ, {"hirevia_ENABLE_LINKEDIN": "1"}):
             assert is_linkedin_enabled() is True
 
     def test_disabled_with_0(self):
-        with patch.dict(os.environ, {"JOBRADAR_ENABLE_LINKEDIN": "0"}):
+        with patch.dict(os.environ, {"hirevia_ENABLE_LINKEDIN": "0"}):
             assert is_linkedin_enabled() is False
 
 
@@ -375,7 +375,7 @@ class TestLinkedInSource:
     def test_disabled_by_default(self, mock_get):
         from hirevia.sources.linkedin import LinkedInSearch
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("JOBRADAR_ENABLE_LINKEDIN", None)
+            os.environ.pop("hirevia_ENABLE_LINKEDIN", None)
             jobs = LinkedInSearch.search("python")
             assert jobs == []
             mock_get.assert_not_called()
@@ -383,7 +383,7 @@ class TestLinkedInSource:
     @patch("hirevia.sources.linkedin.requests.get")
     def test_enabled_returns_jobs(self, mock_get):
         from hirevia.sources.linkedin import LinkedInSearch
-        with patch.dict(os.environ, {"JOBRADAR_ENABLE_LINKEDIN": "1"}):
+        with patch.dict(os.environ, {"hirevia_ENABLE_LINKEDIN": "1"}):
             mock_resp = MagicMock(status_code=200, text="""
                 <ul>
                     <li>
@@ -403,7 +403,7 @@ class TestLinkedInSource:
     def test_enabled_new_markup_returns_jobs(self, mock_get):
         """LinkedIn moved title/company to <a> tags (2026 markup change)."""
         from hirevia.sources.linkedin import LinkedInSearch
-        with patch.dict(os.environ, {"JOBRADAR_ENABLE_LINKEDIN": "1"}):
+        with patch.dict(os.environ, {"hirevia_ENABLE_LINKEDIN": "1"}):
             mock_resp = MagicMock(status_code=200, text="""
                 <ul>
                     <li>
@@ -428,7 +428,7 @@ class TestLinkedInSource:
 
 class TestInteractiveMode:
     def test_interactive_quit_no_crash(self, monkeypatch, capsys):
-        """Regression: 'python -m jobradar' crashed with NameError: LLM_MODEL
+        """Regression: 'python -m hirevia' crashed with NameError: LLM_MODEL
         not defined when a search was run from interactive mode."""
         from hirevia.cli import interactive_mode
 

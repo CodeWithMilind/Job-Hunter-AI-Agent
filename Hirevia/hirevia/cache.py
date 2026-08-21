@@ -15,7 +15,7 @@ from hirevia.models import Job
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = os.path.join(os.path.expanduser("~"), ".jobradar", "seen_jobs.db")
+DEFAULT_DB_PATH = os.path.join(os.path.expanduser("~"), ".hirevia", "seen_jobs.db")
 DEFAULT_TTL_DAYS = 7
 
 

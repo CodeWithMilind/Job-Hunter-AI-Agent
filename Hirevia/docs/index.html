@@ -463,7 +463,7 @@
       <a href="#sources">Sources</a>
       <a href="#how">Install</a>
     </div>
-    <a href="https://github.com/ANIRudH-lab-life/job-radar" target="_blank" class="nav-cta">GitHub</a>
+    <a href="https://github.com/ANIRudH-lab-life/hire-via" target="_blank" class="nav-cta">GitHub</a>
   </nav>
 
   <!-- HERO -->
@@ -484,12 +484,12 @@
       </div>
       <div class="install-box" id="install-linux" onclick="copyCommand('linux')">
         <span class="prompt">$</span>
-        <code>curl -fsSL https://raw.githubusercontent.com/<span>ANIRudH-lab-life/job-radar/main/setup.sh</span> | bash</code>
+        <code>curl -fsSL https://raw.githubusercontent.com/<span>ANIRudH-lab-life/hire-via/main/setup.sh</span> | bash</code>
         <button class="copy-btn" id="copy-linux">Copy</button>
       </div>
       <div class="install-box" id="install-windows" style="display:none" onclick="copyCommand('windows')">
         <span class="prompt">PS&gt;</span>
-        <code>git clone https://github.com/<span>ANIRudH-lab-life/job-radar</span> &amp;&amp; cd job-radar &amp;&amp; .\setup.ps1</code>
+        <code>git clone https://github.com/<span>ANIRudH-lab-life/hire-via</span> &amp;&amp; cd hire-via &amp;&amp; .\setup.ps1</code>
         <button class="copy-btn" id="copy-windows">Copy</button>
       </div>
     </div>
@@ -516,7 +516,7 @@
         <div class="terminal-dot red"></div>
         <div class="terminal-dot yellow"></div>
         <div class="terminal-dot green"></div>
-        <span class="terminal-title">jobradar -- search results</span>
+        <span class="terminal-title">hirevia -- search results</span>
       </div>
       <div class="terminal-body">
         <div class="line" style="transition-delay:0.1s"><span class="dim">Searching 8 sources...</span></div>
@@ -631,9 +631,9 @@
       <h2 class="section-title">Running in four steps.</h2>
     </div>
     <div class="steps">
-      <div class="step" data-reveal><div class="step-num">01</div><div class="step-content"><h3>Clone and install</h3><p>The installer checks everything before downloading. Safe to re-run.</p><code><span class="prompt">$</span> git clone https://github.com/ANIRudH-lab-life/job-radar && cd job-radar && bash setup.sh</code></div></div>
+      <div class="step" data-reveal><div class="step-num">01</div><div class="step-content"><h3>Clone and install</h3><p>The installer checks everything before downloading. Safe to re-run.</p><code><span class="prompt">$</span> git clone https://github.com/ANIRudH-lab-life/hire-via && cd hire-via && bash setup.sh</code></div></div>
       <div class="step" data-reveal><div class="step-num">02</div><div class="step-content"><h3>Choose your AI backend</h3><p>Ollama (recommended) or llama.cpp. The installer handles the model download.</p><code><span class="prompt">$</span> ollama pull qwen3:1.7b</code></div></div>
-      <div class="step" data-reveal><div class="step-num">03</div><div class="step-content"><h3>Search and score</h3><p>Define your profile, run a search. Every listing gets scored against your background.</p><code><span class="prompt">$</span> python -m jobradar -q "python developer" -p profile.yaml</code></div></div>
+      <div class="step" data-reveal><div class="step-num">03</div><div class="step-content"><h3>Search and score</h3><p>Define your profile, run a search. Every listing gets scored against your background.</p><code><span class="prompt">$</span> python -m hirevia -q "python developer" -p profile.yaml</code></div></div>
       <div class="step" data-reveal><div class="step-num">04</div><div class="step-content"><h3>Track in the dashboard</h3><p>Move jobs through a pipeline: Discovered, Reviewing, Applied, Interviewing.</p><code><span class="prompt">$</span> cd dashboard && bash run.sh &nbsp;# localhost:3000</code></div></div>
     </div>
   </section>
@@ -649,8 +649,8 @@
     <h2 class="reveal">Start searching.</h2>
     <p class="reveal">Free. Open source. No account required. Your data stays on your machine.</p>
     <div class="cta-buttons reveal">
-      <a href="https://github.com/ANIRudH-lab-life/job-radar" target="_blank" class="btn-primary">View on GitHub</a>
-      <a href="https://github.com/ANIRudH-lab-life/job-radar#quick-install" target="_blank" class="btn-secondary">Read the Docs</a>
+      <a href="https://github.com/ANIRudH-lab-life/hire-via" target="_blank" class="btn-primary">View on GitHub</a>
+      <a href="https://github.com/ANIRudH-lab-life/hire-via#quick-install" target="_blank" class="btn-secondary">Read the Docs</a>
     </div>
   </section>
 
@@ -658,7 +658,7 @@
   <footer class="footer">
     <span>Hirevia v1.0 &middot; MIT License</span>
     <span>Built by <a href="https://github.com/ANIRudH-lab-life" style="color:var(--accent)">Anirudh</a></span>
-    <a href="https://github.com/ANIRudH-lab-life/job-radar" target="_blank">github.com/ANIRudH-lab-life/job-radar</a>
+    <a href="https://github.com/ANIRudH-lab-life/hire-via" target="_blank">github.com/ANIRudH-lab-life/hire-via</a>
   </footer>
 
   <script>
@@ -758,8 +758,8 @@
     }
     function copyCommand(os) {
       const cmds = {
-        linux: 'curl -fsSL https://raw.githubusercontent.com/ANIRudH-lab-life/job-radar/main/setup.sh | bash',
-        windows: 'git clone https://github.com/ANIRudH-lab-life/job-radar && cd job-radar && .\\setup.ps1'
+        linux: 'curl -fsSL https://raw.githubusercontent.com/ANIRudH-lab-life/hire-via/main/setup.sh | bash',
+        windows: 'git clone https://github.com/ANIRudH-lab-life/hire-via && cd hire-via && .\\setup.ps1'
       };
       navigator.clipboard.writeText(cmds[os]);
       const btn = document.getElementById('copy-' + os);
