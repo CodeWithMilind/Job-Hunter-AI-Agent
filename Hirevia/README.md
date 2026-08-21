@@ -113,18 +113,91 @@ sources:
 
 Telegram remains fully optional and disabled by default. Normal searches never initialize the Telegram client or require environment variables for it.
 
-## Required environment variables
+## Telegram configuration
+
+Telegram is fully optional and integrated into the unified pipeline as just another job source.
+
+### Why Telegram is optional
+
+- Normal job search works perfectly without Telegram enabled
+- Telegram requires Telethon library (already included in requirements)
+- Telegram requires API credentials (API_ID, API_HASH)
+- Telegram requires a persistent session after first authentication
+- Default configuration has Telegram disabled to avoid auth prompts
+
+### Setting up Telegram (optional)
+
+1. **Get Telegram API credentials:**
+   - Visit https://my.telegram.org/
+   - Log in with your Telegram account
+   - Go to "API development tools"
+   - Create a new application
+   - Copy `api_id` and `api_hash`
+
+2. **Set environment variables:**
+   ```bash
+   export TELEGRAM_API_ID="your_api_id"
+   export TELEGRAM_API_HASH="your_api_hash"
+   ```
+
+3. **Create telegram.yaml** with job channels:
+   ```yaml
+   channels:
+     - name: "Job Channel 1"
+       username: "@job_channel_1"
+       enabled: true
+       limit: 50
+     - name: "Job Channel 2"
+       username: "@job_channel_2"
+       enabled: true
+       limit: 50
+   ```
+
+4. **Enable Telegram in sources.yaml:**
+   ```yaml
+   telegram: { enabled: true }
+   ```
+
+5. **First-time authentication:**
+   When you first enable Telegram, Telethon will prompt for your phone number.
+   - For Telegram bots: provide the bot token
+   - For user accounts: provide the phone number and verification code
+   - The session is saved in `job_hunter_session.session` and reused automatically
+
+### How Telegram works
+
+1. Telegram source is fetched during normal searches alongside GitHub, Greenhouse, etc.
+2. Hirevia reads configured channels for job postings
+3. Job detection filters out non-job content (courses, webinars, promotions)
+4. Job titles, companies, locations, URLs are extracted when possible
+5. Results are deduplicated and scored with the AI engine
+6. Jobs appear in the same dashboard/CLI output as other sources
+
+### Telegram failures don't break other sources
+
+If Telegram fails:
+- Missing credentials → skipped gracefully
+- Network error → skipped with warning
+- Authentication error → skipped with warning
+- Jobs from GitHub, Greenhouse, etc. still return normally
+
+### Session management
+
+- Session file: `job_hunter_session.session` (auto-created on first auth)
+- Session file is in `.gitignore` (never committed)
+- Session is reused automatically (no re-auth needed on every search)
+- To force re-authentication: delete `job_hunter_session.session`
+
+### Required environment variables
 
 Normal job search does not require Telegram credentials.
 
 Optional Telegram-only usage requires:
 
 ```bash
-export TELEGRAM_API_ID="..."
-export TELEGRAM_API_HASH="..."
+export TELEGRAM_API_ID="your_api_id"
+export TELEGRAM_API_HASH="your_api_hash"
 ```
-
-These variables are only needed if you explicitly enable the Telegram source in `sources.yaml` and use the Telegram-specific flow.
 
 ## Profile setup
 

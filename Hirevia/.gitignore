@@ -12,13 +12,15 @@ build/
 venv/
 env/
 
-# Hirevia results
+# Hirevia results and state
 results.json
 results.csv
 *.json
 !profile.yaml
 !package.json
 !package-lock.json
+telegram_state.json
+job_hunter_session.session
 
 # Downloaded binaries and models
 bin/

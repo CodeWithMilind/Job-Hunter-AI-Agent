@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from pathlib import Path
 from typing import List
@@ -19,7 +20,7 @@ from hirevia.sources.base import JobSource
 
 load_dotenv()
 
-STATE_FILE = Path("telegram_state.json")
+logger = logging.getLogger(__name__)
 
 
 class TelegramSearch(JobSource):
@@ -33,31 +34,63 @@ class TelegramSearch(JobSource):
         self._channels = self._load_channels()
 
     @staticmethod
+    def _get_config_dir() -> Path:
+        """Find project root by locating sources.yaml."""
+        current = Path.cwd()
+        # Search up to 3 levels for project root
+        for _ in range(3):
+            if (current / "sources.yaml").exists():
+                return current
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        # Fall back to current directory
+        return Path.cwd()
+
+    @staticmethod
     def _load_channels():
-        path = Path("telegram.yaml")
+        config_dir = TelegramSearch._get_config_dir()
+        path = config_dir / "telegram.yaml"
         if not path.exists():
             return []
 
         with path.open(encoding="utf-8") as f:
-            return yaml.safe_load(f).get("channels", [])
+            data = yaml.safe_load(f)
+            if data is None:
+                return []
+            return data.get("channels", [])
+
+    @staticmethod
+    def _get_state_file() -> Path:
+        """Get session state file in project root."""
+        config_dir = TelegramSearch._get_config_dir()
+        return config_dir / "telegram_state.json"
 
     @staticmethod
     def _load_state():
-        if STATE_FILE.exists():
-            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        state_file = TelegramSearch._get_state_file()
+        if state_file.exists():
+            return json.loads(state_file.read_text(encoding="utf-8"))
         return {}
 
     @staticmethod
     def _save_state(state):
-        STATE_FILE.write_text(
+        state_file = TelegramSearch._get_state_file()
+        state_file.write_text(
             json.dumps(state, indent=2),
             encoding="utf-8",
         )
 
     @staticmethod
     def _is_job(text: str) -> bool:
-        text = text.lower()
+        """Detect if a Telegram message contains a job posting."""
+        if not text:
+            return False
+            
+        text_lower = text.lower()
 
+        # Ignore obvious non-job content
         blocked = [
             "masterclass",
             "webinar",
@@ -66,39 +99,95 @@ class TelegramSearch(JobSource):
             "follow us",
             "join our",
             "workshop",
+            "seminar",
+            "bootcamp",
+            "training program",
+            "learn now",
+            "register here",
+            "exclusive offer",
+            "limited time",
+            "only for",
+            "hurry up",
+            "discount",
+            "promo",
+            "sale",
+            "free trial",
         ]
 
-        if any(word in text for word in blocked):
+        if any(word in text_lower for word in blocked):
             return False
 
+        # Keywords that indicate a job posting
         keywords = [
+            "we're hiring",
             "hiring",
             "job opportunity",
             "job opening",
             "role:",
             "position:",
+            "vacancy",
+            "opening:",
+            "apply now",
+            "apply:",
+            "apply here",
+            "recruitment",
+            "experienced",
+            "experience required",
+            "required:",
+            "skills:",
+            "salary:",
+            "ctc:",
+            "package:",
             "developer",
             "engineer",
             "intern",
             "internship",
             "fresher",
-            "vacancy",
-            "apply now",
-            "apply:",
-            "graduate trainee",
+            "trainee",
+            "graduate",
             "software engineer",
             "data scientist",
             "data analyst",
+            "business analyst",
+            "qa engineer",
+            "product manager",
+            "manager",
+            "analyst",
+            "senior",
+            "junior",
+            "lead",
         ]
 
-        return any(word in text for word in keywords)
+        return any(word in text_lower for word in keywords)
 
     @staticmethod
     def _url(text: str) -> str:
+        """Extract the first URL from text, preferring application URLs."""
         import re
 
         urls = re.findall(r"https?://[^\s<>]+", text)
+        if not urls:
+            return ""
+        
+        # Filter out common non-application URLs
+        blocked_domains = ["t.me", "telegram.org", "telegram.me"]
+        app_urls = [u.rstrip(").,") for u in urls 
+                    if not any(b in u for b in blocked_domains)]
+        
+        if app_urls:
+            return app_urls[0]
+        
+        # Fall back to first URL even if Telegram
         return urls[0].rstrip(").,") if urls else ""
+
+    @staticmethod
+    def _telegram_message_url(channel_username: str, message_id: int) -> str:
+        """Generate a Telegram message URL if the channel is public."""
+        if not channel_username:
+            return ""
+        # Remove @ if present
+        username = channel_username.lstrip("@")
+        return f"https://t.me/{username}/{message_id}"
 
     @staticmethod
     def _field(text: str, patterns: list[str]) -> str:
@@ -110,7 +199,8 @@ class TelegramSearch(JobSource):
                 return re.sub(r"[*_`~]", "", match.group(1)).strip()
         return ""
 
-    def _parse(self, message, channel_name: str) -> Job | None:
+    def _parse(self, message, channel_name: str, channel_username: str) -> Job | None:
+        """Parse a Telegram message into a Job object."""
         text = message.text or ""
 
         if not self._is_job(text):
@@ -119,29 +209,33 @@ class TelegramSearch(JobSource):
         title = self._field(
             text,
             [
-                r"role\s*[:\-]\s*(.+)",
-                r"position\s*[:\-]\s*(.+)",
-                r"job\s*title\s*[:\-]\s*(.+)",
+                r"role\s*[:\-]\s*(.+?)(?:\n|$)",
+                r"position\s*[:\-]\s*(.+?)(?:\n|$)",
+                r"job\s*title\s*[:\-]\s*(.+?)(?:\n|$)",
+                r"hiring\s+(?:for\s+)?(?:a\s+)?(.+?)(?:\n|$)",
             ],
         )
 
         company = self._field(
             text,
             [
-                r"company\s*(?:name)?\s*[:\-]\s*(.+)",
+                r"company\s*(?:name)?\s*[:\-]\s*(.+?)(?:\n|$)",
+                r"from\s+(.+?)(?:\n|$)",
             ],
         )
 
         location = self._field(
             text,
             [
-                r"location\s*[:\-]\s*(.+)",
-                r"work\s*mode\s*[:\-]\s*(.+)",
+                r"location\s*[:\-]\s*(.+?)(?:\n|$)",
+                r"work\s*(?:location|mode)\s*[:\-]\s*(.+?)(?:\n|$)",
             ],
         )
 
+        remote = "remote" in text.lower() or "work from home" in text.lower()
+        
         if not location:
-            location = "Remote" if "remote" in text.lower() else "Unknown"
+            location = "Remote" if remote else "Unknown"
 
         if not title:
             title = "Unknown"
@@ -149,20 +243,32 @@ class TelegramSearch(JobSource):
         if not company:
             company = "Unknown"
 
+        # Get URLs - prefer non-Telegram URLs
+        app_url = self._url(text)
+        
+        # Generate Telegram message URL
+        tg_url = self._telegram_message_url(channel_username, message.id) if channel_username else ""
+        
+        # If no external URL found, use Telegram URL
+        if not app_url:
+            app_url = tg_url
+
         return Job(
             title=title,
             company=company,
             location=location,
-            url=self._url(text),
+            url=app_url or tg_url,
             description=text,
             source="Telegram",
             source_type="Telegram",
-            original_url=self._url(text),
+            original_url=app_url or tg_url,
             source_metadata={
                 "channel": channel_name,
+                "channel_username": channel_username,
                 "telegram_message_id": str(message.id),
+                "telegram_message_url": tg_url,
             },
-            remote="remote" in text.lower() or "work from home" in text.lower(),
+            remote=remote,
             posted=message.date.isoformat() if message.date else "",
         )
 
@@ -199,7 +305,7 @@ class TelegramSearch(JobSource):
 
                     newest_id = max(newest_id, message.id)
 
-                    job = self._parse(message, channel_name)
+                    job = self._parse(message, channel_name, username)
 
                     if job:
                         jobs.append(job)
@@ -222,4 +328,30 @@ class TelegramSearch(JobSource):
         max_pages: int = 3,
         companies_path: str = "companies.yaml",
     ) -> List[Job]:
-        return asyncio.run(self._fetch(limit))
+        """Fetch jobs from configured Telegram channels.
+        
+        Returns an empty list if Telegram is not configured or unavailable,
+        without raising an exception. This allows other sources to continue.
+        """
+        if not self.enabled:
+            return []
+        
+        if TelegramClient is None:
+            logger.warning("Telethon not installed; Telegram source skipped")
+            return []
+        
+        if not self._channels:
+            logger.warning("No Telegram channels configured (telegram.yaml)")
+            return []
+        
+        try:
+            if not os.getenv("TELEGRAM_API_ID") or not os.getenv("TELEGRAM_API_HASH"):
+                logger.warning(
+                    "TELEGRAM_API_ID/TELEGRAM_API_HASH not set; Telegram skipped"
+                )
+                return []
+            
+            return asyncio.run(self._fetch(limit))
+        except Exception as e:
+            logger.warning(f"Telegram fetch failed: {e}")
+            return []
