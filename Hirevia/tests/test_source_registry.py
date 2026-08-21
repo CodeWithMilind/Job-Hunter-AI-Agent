@@ -11,6 +11,7 @@ def test_built_in_sources_are_registered_with_categories():
     assert registry.get("remotive").source_type == "API"
     assert registry.get("greenhouse").source_type == "Career Portal"
     assert registry.get("linkedin").enabled is False
+    assert "telegram" not in {source.source_id for source in registry.enabled_sources()}
 
 
 def test_yaml_config_enables_and_disables_sources(tmp_path):

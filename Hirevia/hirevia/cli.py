@@ -15,16 +15,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from rich.console import Console
 from rich.markup import escape
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 from hirevia.models import Job, Profile
-from hirevia.eligibility import INDIA_ELIGIBLE
-from hirevia.display import console, display_header, display_jobs, export_results
-from hirevia.rating import AIRater, LLM_URL
-from hirevia.cache import SeenJobsCache
-from hirevia.sources import SourceRegistry
+from hirevia.pipeline import search_jobs as _search_jobs
+from hirevia.display import console, display_header
+from hirevia.rating import LLM_URL
 
 DEFAULT_PROFILE = "profile.yaml"
 DEFAULT_COMPANIES = "companies.yaml"
@@ -53,161 +49,25 @@ def search_jobs(
     llm_url: str = "",
     llm_model: str = "",
 ) -> List[Job]:
-    """Main search pipeline with concurrent source queries."""
-    display_header()
-
-    # Step 1: Search multiple sources concurrently
-    console.print(f"\n[bold cyan]🔍 Searching for:[/bold cyan] [bold white]{escape(query)}[/bold white]")
-    if location:
-        console.print(f"[bold cyan]📍 Location:[/bold cyan] [bold white]{escape(location)}[/bold white]")
-    console.print()
-
-    registry = SourceRegistry.from_yaml(sources_path)
-    sources = registry.enabled_sources(overrides={"linkedin": True} if enable_linkedin else None)
-
-    all_jobs: List[Job] = []
-    source_counts = {}
-
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Searching sources...", total=len(sources))
-
-        with ThreadPoolExecutor(max_workers=min(len(sources), 10)) as pool:
-            future_to_source = {
-                pool.submit(source.fetch_safely, query, location=location, limit=limit, max_pages=max_pages, companies_path=companies_path): source
-                for source in sources
-            }
-            for future in as_completed(future_to_source):
-                source = future_to_source[future]
-                try:
-                    result = future.result()
-                    if result.error:
-                        raise RuntimeError(result.error)
-                    source_counts[source.name] = len(result.jobs)
-                    all_jobs.extend(result.jobs)
-                    progress.update(
-                        task,
-                        advance=1,
-                        description=f"[green]{source.name}: {len(result.jobs)} jobs[/green]",
-                    )
-                except Exception as e:
-                    logger.warning("%s search failed: %s", source.name, e)
-                    source_counts[source.name] = 0
-                    progress.update(
-                        task,
-                        advance=1,
-                        description=f"[red]{source.name}: error[/red]",
-                    )
-
-    # Deduplicate normal sources, but keep Telegram jobs independent.
-    seen = set()
-    unique_jobs: List[Job] = []
-    for job in all_jobs:
-        if job.source == "Telegram":
-            unique_jobs.append(job)
-            continue
-        key = (
-            job.title.lower().strip(),
-            job.company.lower().strip(),
-        )
-        if key not in seen:
-            seen.add(key)
-            unique_jobs.append(job)
-    all_jobs = unique_jobs
-    
-
-    # Apply persistent seen-jobs cache
-    cache = None
-    before_count = len(all_jobs)
-    if not no_cache:
-        try:
-            cache = SeenJobsCache(ttl_days=cache_days)
-            all_jobs = cache.filter_new(all_jobs)
-            if before_count != len(all_jobs):
-                console.print(f"[dim]📋 Cache: {before_count} → {len(all_jobs)} new jobs ({before_count - len(all_jobs)} previously seen, {cache_days}d TTL)[/dim]")
-        except Exception as e:
-            logger.warning("Cache unavailable: %s", e)
-
-    src_summary = ", ".join(f"{n}: {c}" for n, c in source_counts.items() if c > 0)
-    console.print(f"\n[green]✓ Found {len(all_jobs)} unique jobs from {len([c for c in source_counts.values() if c > 0])} sources ({src_summary})[/green]\n")
-
-    if not all_jobs:
-        if cache:
-            cache.close()
-        return []
-
-    # Step 2: AI Rating
-    if ai_enabled:
-        # Set model before creating rater
-        if llm_model:
-            import hirevia.rating as _rating
-            _rating.LLM_MODEL = llm_model
-        rater = AIRater(base_url=llm_url, max_concurrency=max_concurrency)
-        if rater.available:
-            import hirevia.rating as _rating
-            console.print(f"[bold cyan]🤖 Rating jobs with local LLM ({_rating.LLM_MODEL}) (concurrency={max_concurrency})...[/bold cyan]\n")
-            profile = profile or Profile(name="Job Seeker")
-
-            start_time = time.time()
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("{task.completed}/{task.total}"),
-                TextColumn("[dim]{task.fields[elapsed]}[/dim]"),
-                console=console,
-            ) as progress:
-                task = progress.add_task("AI Rating...", total=len(all_jobs), elapsed="")
-
-                def _on_progress(done, total, job):
-                    elapsed = time.strftime("%M:%S", time.gmtime(time.time() - start_time))
-                    desc = f"AI Rating... [green]{job.score}[/green] {job.company}"
-                    progress.update(task, completed=done, description=desc, elapsed=elapsed)
-
-                rater.rate_jobs(all_jobs, profile, on_progress=_on_progress)
-                elapsed = time.strftime("%M:%S", time.gmtime(time.time() - start_time))
-                progress.update(task, completed=len(all_jobs), elapsed=elapsed)
-        else:
-            console.print("[yellow]⚠ Local LLM not available. Running without AI ratings.[/yellow]")
-            console.print("[dim]  Auto-detected ports: 11434 (Ollama), 8080 (llama.cpp), 1234 (LM Studio)[/dim]")
-            console.print("[dim]  Start Ollama, llama-server, or LM Studio, then try again[/dim]\n")
-            for job in all_jobs:
-                job.score = 50
-                job.rating = "No AI"
-    else:
-        for job in all_jobs:
-            job.score = 50
-            job.rating = "Skipped"
-
-    # Step 3: Display
-    display_jobs(all_jobs, profile, ai_enabled)
-
-    # Step 4: Export
-    if export_path:
-        fmt = "csv" if export_path.endswith(".csv") else "json"
-        export_results(all_jobs, export_path, fmt)
-    else:
-        # Auto-save to results.csv in current directory
-        auto_path = os.path.join(os.getcwd(), "results.csv")
-        export_results(all_jobs, auto_path, "csv")
-
-    # Step 5: Update cache with displayed jobs
-    if cache:
-        try:
-            cache.mark_seen(all_jobs)
-            stats = cache.stats()
-            console.print(f"[dim]📋 Cache: {stats['active_entries']} active entries ({stats['ttl_days']}d TTL)[/dim]")
-        except Exception as e:
-            logger.warning("Cache update failed: %s", e)
-        finally:
-            cache.close()
-
-    return all_jobs
+    """Thin compatibility wrapper around the central shared pipeline."""
+    return _search_jobs(
+        query=query,
+        location=location,
+        profile=profile,
+        ai_enabled=ai_enabled,
+        export_path=export_path,
+        limit=limit,
+        max_pages=max_pages,
+        max_concurrency=max_concurrency,
+        enable_linkedin=enable_linkedin,
+        companies_path=companies_path,
+        sources_path=sources_path,
+        cache_days=cache_days,
+        no_cache=no_cache,
+        india_eligible_only=india_eligible_only,
+        llm_url=llm_url,
+        llm_model=llm_model,
+    )
 
 
 # ─── Interactive mode ──────────────────────────────────────────────────────

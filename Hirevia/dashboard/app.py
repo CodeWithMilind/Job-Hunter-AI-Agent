@@ -5,7 +5,6 @@ import logging
 import os
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -15,10 +14,12 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# Make sure hirevia package is importable
+# Make sure both the project and dashboard modules are importable.
 _project_root = str(Path(__file__).resolve().parent.parent)
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
+_dashboard_dir = str(Path(__file__).resolve().parent)
+for entry in (_project_root, _dashboard_dir):
+    if entry not in sys.path:
+        sys.path.insert(0, entry)
 
 import database as db
 
@@ -46,6 +47,7 @@ class SearchRequest(BaseModel):
     location: str = ""
     limit: int = 50
     no_ai: bool = False
+    no_cache: bool = True
 
 class ConfigUpdate(BaseModel):
     key: str
@@ -157,8 +159,66 @@ def trigger_search(req: SearchRequest, background_tasks: BackgroundTasks):
     return {"status": "started", "query": req.query}
 
 
+@app.post("/api/search/jobs")
+def search_jobs_json(req: SearchRequest):
+    """Unified frontend search endpoint: one job-search path for all UI searches."""
+    from hirevia.pipeline import search_jobs as run_pipeline
+    from hirevia.models import Profile
+
+    profile_path = os.path.join(_project_root, "profile.yaml")
+    profile = Profile.from_yaml(profile_path) if os.path.exists(profile_path) else Profile(name="Job Seeker")
+
+    jobs = run_pipeline(
+        query=req.query,
+        location=req.location,
+        profile=profile,
+        ai_enabled=not req.no_ai,
+        limit=req.limit,
+        companies_path=os.path.join(_project_root, "companies.yaml"),
+        sources_path=os.path.join(_project_root, "sources.yaml"),
+        no_cache=req.no_cache,
+        show_output=False,
+    )
+
+    payload_jobs = []
+    for job in jobs:
+        payload = {
+            "title": job.title,
+            "company": job.company,
+            "location": job.location,
+            "source": job.source,
+            "source_type": job.source_type,
+            "url": job.url,
+            "description": job.description,
+            "salary": job.salary,
+            "remote": job.remote,
+            "posted": job.posted,
+            "score": job.score,
+            "rating": job.rating,
+            "reasoning": job.reasoning,
+            "skills_match": job.skills_match,
+            "experience_fit": job.experience_fit,
+            "salary_fit": job.salary_fit,
+            "remote_fit": job.remote_fit,
+            "india_eligibility": job.india_eligibility,
+            "source_metadata": job.source_metadata,
+        }
+        db.upsert_job({
+            **payload,
+            "original_url": job.original_url,
+            "country": job.country,
+            "location_restrictions": job.location_restrictions,
+            "timezone": job.timezone,
+            "tags": job.tags,
+        })
+        payload_jobs.append(payload)
+
+    db.record_search(req.query, req.location, len(jobs), len(payload_jobs))
+    return {"jobs": payload_jobs, "count": len(payload_jobs), "status": "completed"}
+
+
 def _run_search(query: str, location: str, limit: int, no_ai: bool):
-    """Background search task that imports and runs hirevia sources."""
+    """Run the unified Hirevia search pipeline and persist the result set."""
     _search_state["running"] = True
     _search_state["progress"] = 0
     _search_state["message"] = f"Searching for '{query}'..."
@@ -166,115 +226,59 @@ def _run_search(query: str, location: str, limit: int, no_ai: bool):
     db.log_activity("info", f"🔍 Search started: '{query}'", f"location={location}, limit={limit}")
 
     try:
-        from hirevia.sources import SourceRegistry
+        from hirevia.pipeline import search_jobs
+        from hirevia.models import Profile
 
-        companies_path = os.path.join(_project_root, "companies.yaml")
+        profile_path = os.path.join(_project_root, "profile.yaml")
+        profile = Profile.from_yaml(profile_path) if os.path.exists(profile_path) else Profile(name="Job Seeker")
 
-        registry = SourceRegistry.from_yaml(os.path.join(_project_root, "sources.yaml"))
-        sources = registry.enabled_sources()
+        jobs = search_jobs(
+            query=query,
+            location=location,
+            profile=profile,
+            ai_enabled=not no_ai,
+            limit=limit,
+            companies_path=os.path.join(_project_root, "companies.yaml"),
+            sources_path=os.path.join(_project_root, "sources.yaml"),
+            no_cache=False,
+            show_output=False,
+        )
 
-        _search_state["total"] = len(sources)
-        all_jobs = []
-        source_counts = {}
+        _search_state["total"] = len(jobs)
+        _search_state["message"] = f"Saving {len(jobs)} jobs to database..."
 
-        with ThreadPoolExecutor(max_workers=min(len(sources), 10)) as pool:
-            future_to_source = {
-                pool.submit(source.fetch_safely, query, location=location, limit=limit, companies_path=companies_path): source
-                for source in sources
-            }
-            for future in as_completed(future_to_source):
-                source = future_to_source[future]
-                _search_state["progress"] += 1
-                try:
-                    result = future.result()
-                    if result.error:
-                        raise RuntimeError(result.error)
-                    source_counts[source.name] = len(result.jobs)
-                    all_jobs.extend(result.jobs)
-                    db.record_source_status(next(item for item in registry.metadata() if item["id"] == source.source_id), len(result.jobs))
-                    _search_state["message"] = f"{source.name}: {len(result.jobs)} jobs"
-                    db.log_activity("info", f"  ✓ {source.name}: {len(result.jobs)} jobs")
-                except Exception as e:
-                    source_counts[source.name] = 0
-                    db.record_source_status(next(item for item in registry.metadata() if item["id"] == source.source_id), error=str(e))
-                    _search_state["message"] = f"{source.name}: error — {e}"
-                    db.log_activity("warning", f"  ✗ {source.name}: {e}")
-
-        # Deduplicate
-        seen = set()
-        unique = []
-        for j in all_jobs:
-            key = (j.title.lower().strip(), j.company.lower().strip())
-            if key not in seen:
-                seen.add(key)
-                unique.append(j)
-        all_jobs = unique
-
-        _search_state["message"] = f"Saving {len(all_jobs)} jobs to database..."
-
-        # AI Rating (optional)
-        if not no_ai:
-            try:
-                from hirevia.rating import AIRater, LLM_URL, LLM_MODEL
-                from hirevia.models import Profile
-
-                rater = AIRater()
-                if rater.available:
-                    db.log_activity("info", f"🤖 AI rating with {LLM_MODEL}...")
-                    # Load profile
-                    profile_path = os.path.join(_project_root, "profile.yaml")
-                    profile = None
-                    if os.path.exists(profile_path):
-                        profile = Profile.from_yaml(profile_path)
-                    else:
-                        profile = Profile(name="Job Seeker")
-
-                    rater.rate_jobs(all_jobs, profile)
-                    db.log_activity("info", "  ✓ AI rating complete")
-                else:
-                    db.log_activity("warning", "  ⚠ LLM offline — skipping AI rating")
-                    for j in all_jobs:
-                        j.score = 50
-                        j.rating = "No AI"
-            except Exception as e:
-                db.log_activity("warning", f"  ⚠ AI rating failed: {e}")
-                for j in all_jobs:
-                    j.score = 50
-                    j.rating = "Error"
-
-        # Save to database
         saved = 0
-        for j in all_jobs:
+        for job in jobs:
             db.upsert_job({
-                "title": j.title,
-                "company": j.company,
-                "location": j.location,
-                "url": j.url,
-                "description": j.description,
-                "salary": j.salary,
-                "source": j.source,
-                "source_type": j.source_type,
-                "original_url": j.original_url,
-                "source_metadata": j.source_metadata,
-                "remote": j.remote,
-                "country": j.country,
-                "location_restrictions": j.location_restrictions,
-                "timezone": j.timezone,
-                "india_eligibility": j.india_eligibility,
-                "tags": j.tags,
-                "posted": j.posted,
-                "score": j.score,
-                "rating": j.rating,
-                "reasoning": j.reasoning,
-                "skills_match": j.skills_match,
-                "experience_fit": j.experience_fit,
-                "salary_fit": j.salary_fit,
-                "remote_fit": j.remote_fit,
+                "title": job.title,
+                "company": job.company,
+                "location": job.location,
+                "url": job.url,
+                "description": job.description,
+                "salary": job.salary,
+                "source": job.source,
+                "source_type": job.source_type,
+                "original_url": job.original_url,
+                "source_metadata": job.source_metadata,
+                "remote": job.remote,
+                "country": job.country,
+                "location_restrictions": job.location_restrictions,
+                "timezone": job.timezone,
+                "india_eligibility": job.india_eligibility,
+                "tags": job.tags,
+                "posted": job.posted,
+                "score": job.score,
+                "rating": job.rating,
+                "reasoning": job.reasoning,
+                "skills_match": job.skills_match,
+                "experience_fit": job.experience_fit,
+                "salary_fit": job.salary_fit,
+                "remote_fit": job.remote_fit,
             })
             saved += 1
 
-        db.record_search(query, location, len(sources), saved)
-        db.log_activity("success", f"✅ Search complete: {saved} jobs saved from {len(source_counts)} sources")
+        db.record_search(query, location, len(jobs), saved)
+        db.log_activity("success", f"✅ Search complete: {saved} jobs saved from pipeline")
 
         _search_state["message"] = f"Done! {saved} jobs saved."
     except Exception as e:
@@ -283,6 +287,30 @@ def _run_search(query: str, location: str, limit: int, no_ai: bool):
         _search_state["message"] = f"Error: {e}"
     finally:
         _search_state["running"] = False
+
+
+# ─── Reset (Safe Wipe) ──────────────────────────────────────────────────────
+
+@app.post("/api/reset")
+def reset_all_records():
+    """Delete all job records and clear the seen-jobs cache for a clean slate test.
+    
+    SAFE: This only deletes job records. Configuration, sources, profile, and settings remain intact.
+    """
+    from hirevia.cache import SeenJobsCache
+    
+    deleted_count = db.delete_all_jobs()
+    
+    # Clear seen-jobs cache so previously seen jobs can reappear
+    try:
+        cache = SeenJobsCache()
+        cache.clear()
+        cache.close()
+    except Exception as e:
+        logger.warning(f"Could not clear seen-jobs cache: {e}")
+    
+    db.log_activity("warning", f"🗑️ Dashboard reset: {deleted_count} job records deleted, cache cleared")
+    return {"ok": True, "deleted_count": deleted_count, "message": "All job records deleted."}
 
 
 # ─── Config ────────────────────────────────────────────────────────────────

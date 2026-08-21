@@ -155,6 +155,11 @@
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                     Search All Sources
                 </button>
+                <button onclick="showDeleteConfirmation()"
+                    class="bg-red-700 hover:bg-red-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    🗑 Delete All Records
+                </button>
             </div>
             <!-- Filters -->
             <div class="flex gap-4 mt-3 items-center flex-wrap">
@@ -726,12 +731,13 @@ async function triggerSearch() {
     const noAi = document.getElementById('search-noai').checked;
 
     try {
-        await api('/api/search', {
+        const data = await api('/api/search/jobs', {
             method: 'POST',
-            body: JSON.stringify({ query, limit, no_ai: noAi }),
+            body: JSON.stringify({ query, location: '', limit, no_ai: noAi, no_cache: true }),
         });
-        showToast('🔍 Search started!');
-        startSearchPoller();
+        showToast(`✅ ${data.count || 0} jobs loaded`);
+        await loadJobs();
+        await loadStats();
     } catch (e) {
         showToast(`Error: ${e.message}`);
     }
@@ -759,6 +765,26 @@ function startSearchPoller() {
             indicator.classList.add('hidden');
         }
     }, 1500);
+}
+
+function showDeleteConfirmation() {
+    const confirmed = confirm('Are you sure you want to delete all job records?\n\nThis will only remove stored jobs and cache state. Configuration, sources, and profile will remain intact.');
+    if (!confirmed) return;
+    
+    resetAllRecords();
+}
+
+async function resetAllRecords() {
+    try {
+        showToast('🗑️ Deleting all job records and cache...');
+        const result = await api('/api/reset', { method: 'POST', body: '{}' });
+        showToast(`✅ ${result.message || 'All job records deleted.'}`);
+        await loadJobs();
+        await loadStats();
+        await loadKanban();
+    } catch (e) {
+        showToast(`❌ Reset failed: ${e.message}`);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

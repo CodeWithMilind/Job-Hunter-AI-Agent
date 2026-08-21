@@ -1,140 +1,106 @@
 # 🎯 Hirevia
 
-**AI-Powered Job & Opportunity Discovery**
+Hirevia is a single, shared job-search pipeline that runs the same search flow for both the CLI and the dashboard.
 
-A CLI job search agent that hunts across 8 free sources at once and helps you figure out which ones are actually worth your time.
+The project reuses the existing `Job` model, `SourceRegistry`, built-in sources, cache, database, and AI scoring so there is one authoritative search path instead of two separate implementations.
 
-It uses a local LLM to score jobs against your profile — but **the AI is just a guide, not a decision-maker**. You're the one who decides what fits. That's the whole point.
+Telegram is not required for normal job search. The default registry keeps Telegram disabled unless you explicitly opt in.
 
-## Why Hirevia?
+## Unified architecture
 
-Most job boards show you hundreds of listings and leave you drowning in tabs. Hirevia pulls from multiple sources at once, filters out the noise, and gives you a ranked list with AI-generated notes on why each job might (or might not) be a fit.
-
-But here's the thing: **we believe the best job search tool puts a human in the loop**. The AI can score and summarize, but it can't understand your gut feeling about a company culture, or that you'd rather work somewhere with a smaller team even if the salary is lower. That part is yours.
-
-So use the scores as a starting point, not a verdict.
-
-## What it does
-
-- **Searches 8 sources at once** — Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, Greenhouse (direct ATS), Ashby (direct ATS), and optionally LinkedIn
-- **Rates jobs with a local LLM** — auto-detects Ollama or llama.cpp, scores each job 0-100 on skills match, experience fit, salary fit, and remote fit
-- **Remembers what you've seen** — persistent cache so you don't re-review the same jobs every run
-- **Works completely offline** — all AI runs locally on your machine, no cloud APIs, no subscriptions
-- **Looks good in the terminal** — color-coded scores, progress bars, clean tables
-- **India eligibility filter** — deterministic checks of location, country restrictions, time zones, and descriptions; global/anywhere roles are included without using AI
-- **Web dashboard** — dark-mode SPA at localhost:3000 with Kanban pipeline, filters, and config editor
-
-## Quick Install
-
-### Option 1: One-liner (Linux / macOS)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ANIRudH-lab-life/hire-via/main/setup.sh | bash
+```text
+CLI ───────────────┐
+                   ↓
+             search_jobs()
+                   ↓
+             SourceRegistry
+                   ↓
+         Normalize + Deduplicate
+                   ↓
+            Cache / Database
+                   ↓
+             AI Scoring
+                   ↓
+         Final Job List
+                   ↓
+Frontend/API ──────┘
 ```
 
-### Option 2: npm (all platforms)
+The shared pipeline in `hirevia/pipeline.py` is the source of truth for:
+
+- fetching jobs from enabled sources
+- normalizing raw source data
+- deduplicating jobs
+- applying cache filtering
+- scoring jobs with the local AI engine
+- returning a single final list of jobs for both interfaces
+
+## What this means in practice
+
+- the CLI only collects arguments and calls `search_jobs()`
+- the frontend API calls the same `search_jobs()` pipeline through the dashboard app
+- one source failure does not stop the whole run
+- empty results are handled cleanly
+- the final job objects are returned in a consistent, JSON-friendly structure
+
+## Quick start
+
+### Backend
 
 ```bash
-npx hirevia-setup
-# or
-git clone https://github.com/ANIRudH-lab-life/hire-via.git
-cd hire-via
-npm run setup
+cd Hirevia
+python -m uvicorn dashboard.app:app --host 0.0.0.0 --port 3000
 ```
 
-### Option 3: PowerShell (Windows)
+### Frontend
 
-```powershell
-git clone https://github.com/ANIRudH-lab-life/hire-via.git
-cd hire-via
-.\setup.ps1
+Open the dashboard in a browser:
+
+```text
+http://127.0.0.1:3000
 ```
 
-### Option 4: Manual
+### CLI
 
 ```bash
-git clone https://github.com/ANIRudH-lab-life/hire-via.git
-cd hire-via
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pip install -r dashboard/requirements.txt
-```
-
-### What the installer does
-
-The smart installer (`setup.sh` / `setup.ps1`) checks each dependency before downloading:
-
-| Step | Checks for | Downloads if missing |
-|------|-----------|---------------------|
-| 1. Python | 3.9+ in PATH | — (shows install link) |
-| 2. pip packages | Each import individually | Only missing packages |
-| 3. LLM Backend | **You choose**: Ollama or llama.cpp | Ollama install + model pull, or llama.cpp binary |
-| 4. LLM Model | Only if llama.cpp chosen | qwen3-1.7b Q4_K_M (~1.1GB) GGUF |
-| 5. Config | profile.yaml | Creates defaults |
-
-Safe to re-run — second run is instant, nothing re-downloaded.
-
-The installer asks which LLM backend you prefer:
-- **Ollama (recommended)** — auto-installs the model, easy to manage, works out of the box
-- **llama.cpp (faster)** — raw performance, downloads GGUF model manually
-
-### Platform notes
-
-| Platform | Installer | llama-server source |
-|----------|-----------|---------------------|
-| Linux (x64) | `bash setup.sh` | Ollama (recommended) or GitHub release zip |
-| macOS (ARM) | `bash setup.sh` | Ollama (recommended) or `brew install llama.cpp` |
-| macOS (Intel) | `bash setup.sh` | Ollama (recommended) or `brew install llama.cpp` |
-| Windows (x64) | `.\setup.ps1` | Ollama (recommended) or GitHub release zip |
-
-## Quick Start
-
-```bash
-cd hire-via
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-
-# Quick search (no AI — fast)
+cd Hirevia
 python -m hirevia -q "python developer" --no-ai
-
-# Search with AI rating (needs a local LLM running)
 python -m hirevia -q "python developer" -p profile.yaml
-
-# Interactive mode — just run it and type queries
 python -m hirevia
-
-# Web dashboard
-cd dashboard && bash run.sh   # Windows: python -m uvicorn app:app --port 3000
-# Open http://localhost:3000
-
-# Start the LLM server (for AI scoring)
-# Option A: Ollama (recommended)
-ollama serve &                              # if not already running
-python -m hirevia -q "python dev" -p profile.yaml
-
-# Option B: llama.cpp (faster)
-llama-server --model models/qwen3-1.7b-q4_k_m.gguf --port 8080
-python -m hirevia -q "python dev" -p profile.yaml
 ```
 
-## Job Sources & Resources
+Additional CLI options:
 
-| Source | Type | Notes |
-|--------|------|-------|
-| Remotive | API | Remote jobs |
-| Arbeitnow | API | Worldwide, paginated |
-| RemoteOK | API | Remote jobs, good volume |
-| Jobicy | API | Remote jobs with salary data |
-| Himalayas | API | Remote jobs with seniority levels |
-| Greenhouse | Career Portal | Curated public ATS boards |
-| Ashby | Career Portal | Curated public ATS boards |
-| LinkedIn | Custom | ⚠️ Disabled by default; opt in only when appropriate |
+```bash
+python -m hirevia -q "python developer" --limit 25
+python -m hirevia -q "python developer" --cache-days 30
+python -m hirevia -q "python developer" --no-cache
+python -m hirevia --clear-cache
+```
 
-The Greenhouse and Ashby sources pull directly from company career pages via their public APIs. No login, no API keys. You can edit the company list in `companies.yaml`.
+### Frontend search flow
 
-### Source registry
+The frontend search uses exactly one API endpoint:
 
-`sources.yaml` controls which built-in resources run. Toggle a source without editing Python:
+```http
+POST /api/search/jobs
+```
+
+This endpoint calls the shared `search_jobs()` pipeline in `hirevia/pipeline.py`, which:
+
+1. loads sources from `SourceRegistry`
+2. fetches jobs from the enabled sources
+3. normalizes the data
+4. deduplicates results
+5. applies cache
+6. scores jobs with the local AI engine when available
+7. returns final job JSON to the frontend
+
+No Telegram login or Telegram authentication is required for normal job search.
+
+## Source setup
+
+The registry is driven by `sources.yaml`. Individual sources can be enabled or disabled without changing Python code:
 
 ```yaml
 sources:
@@ -142,19 +108,27 @@ sources:
   remoteok: { enabled: false }
   greenhouse: { enabled: true }
   linkedin: { enabled: false }
+  telegram: { enabled: false }
 ```
 
-The dashboard's **Sources & Resources** tab shows the configured type, enabled state, latest job count, last successful fetch, and any last error. Each source failure is isolated, so a failed API does not interrupt the other sources.
+Telegram remains fully optional and disabled by default. Normal searches never initialize the Telegram client or require environment variables for it.
 
-Every collected job retains its source name, source type, original source URL, and source metadata. Existing title/company deduplication remains the single deduplication step across all sources.
+## Required environment variables
 
-### Adding a future source
+Normal job search does not require Telegram credentials.
 
-Add a `JobSource` implementation with `source_id`, `name`, `source_type`, `enabled`, `metadata`, and `fetch()`, then register it from `hirevia/sources/registry.py`. Valid types are `API`, `RSS`, `Career Portal`, `Company Career Page`, `Telegram`, and `Custom`. The registry's `fetch_safely()` wrapper handles errors and attaches standard metadata. Telegram, RSS, and custom URL sources are intentionally only prepared by this architecture; no Telegram or WhatsApp scraping is implemented.
+Optional Telegram-only usage requires:
 
-## Profile Setup
+```bash
+export TELEGRAM_API_ID="..."
+export TELEGRAM_API_HASH="..."
+```
 
-Create a `profile.yaml` with your details so the AI can score jobs against your actual background:
+These variables are only needed if you explicitly enable the Telegram source in `sources.yaml` and use the Telegram-specific flow.
+
+## Profile setup
+
+Create `profile.yaml` with your details so the AI scorer can rank jobs against your profile:
 
 ```yaml
 name: "Your Name"
@@ -169,95 +143,62 @@ remote_ok: true
 industries: [Fintech, SaaS]
 ```
 
-The more detail you put in, the better the scoring. But remember — the AI's score is a suggestion, not a ranking you have to follow.
+## Job fields and JSON output
 
-## Companies (ATS Sources)
+The shared pipeline returns final jobs with useful fields such as:
 
-Edit `companies.yaml` to add or remove companies for the Greenhouse and Ashby sources. Just use the company slug (the part of the URL on their careers page):
+- title
+- company
+- location
+- source
+- url
+- description
+- score
+- rating
+- skills_match
+- experience_fit
+- salary_fit
+- remote_fit
 
-```yaml
-greenhouse:
-  - gitlab
-  - figma
-  - discord
-  - shopify
-  - stripe
+## Local AI scoring
 
-ashby:
-  - openai
-  - anthropic
-  - linear
-  - resend
-  - clerk
-```
+If a local model is available, Hirevia scores jobs against the profile using the same AI logic for both the CLI and the dashboard.
+
+If no local LLM is detected, the pipeline falls back to neutral scores instead of failing the search.
 
 ## Caching
 
-Hirevia remembers jobs you've already seen so you don't re-review them on every run. By default, it keeps a 7-day cache in `~/.hirevia/seen_jobs.db`.
+The persistent seen-jobs cache prevents re-reviewing the same positions across runs. It is shared by the unified pipeline and is still optional via `--no-cache`.
+
+## Notes
+
+- Telegram support remains optional and will not crash the app when the dependency is missing.
+- The dashboard and CLI both stay compatible with the existing sources and storage model.
+- No duplicate scraper logic was introduced for the frontend.
+
+## Verification
+
+The project test suite is the current verification gate:
 
 ```bash
-# Change cache duration to 30 days
-python -m hirevia -q "python" --cache-days 30
-
-# Skip the cache entirely
-python -m hirevia -q "python" --no-cache
-
-# Clear the cache
-python -m hirevia --clear-cache
+python -m pytest -q
 ```
 
-## Web Dashboard
+This ensures the shared pipeline, source registry, and compatibility wrappers continue to work together.
 
-The dashboard gives you a visual interface for everything:
+## Test instructions
 
-- **Header stats** — total discovered, high match, pending review, applied
-- **Job cards** with color-coded match scores (green/yellow/red)
-- **Inspector panel** — full description, matched keywords, LLM reasoning
-- **Kanban pipeline** — drag jobs from Discovered → Reviewing → Applied → Interviewing
-- **Config editor** — edit profile.yaml and companies.yaml in the UI
-- **Live activity log** — terminal-style console showing LLM scoring progress
-- **Keyboard shortcuts** — J/K to scroll, E to edit, A to mark applied
-
-Start it with:
 ```bash
-cd dashboard
-bash run.sh          # Linux/macOS
-# or
-python -m uvicorn app:app --port 3000   # Windows
+python -m pytest -q
 ```
 
-Then open http://localhost:3000.
-
-## CLI Reference
-
-| Flag | Default | What it does |
-|------|---------|-------------|
-| `-q`, `--query` | — | Your search query |
-| `-l`, `--location` | — | Filter by location |
-| `-p`, `--profile` | `profile.yaml` | Path to your profile |
-| `--no-ai` | off | Skip AI rating (faster) |
-| `--export` | — | Save results to `.json` or `.csv` |
-| `--limit` | `50` | Max jobs per source |
-| `--max-pages` | `3` | Max pages per source |
-| `--max-concurrency` | `3` | Concurrent AI rating calls |
-| `--companies` | `companies.yaml` | Company list for ATS sources |
-| `--cache-days` | `7` | Days to remember seen jobs |
-| `--no-cache` | off | Disable the cache |
-| `--india-eligible-only` | off | Keep only jobs deterministically eligible from India |
-| `--clear-cache` | — | Clear cache and exit |
-| `--list-ats-companies` | — | Show configured ATS companies |
-| `--enable-linkedin` | off | ⚠️ Enable LinkedIn scraping |
-| `--llm-url` | *(auto-detect)* | LLM server URL (auto-scans 11434, 8080, 1234) |
-| `--llm-model` | `qwen3:1.7b` | LLM model name (override auto-detection) |
-
-## Changing the Model
-
-Hirevia defaults to `qwen3:1.7b` (1.1 GB, fast on CPU). If you want a different model:
+Also verify the frontend API contract directly:
 
 ```bash
-# Pull a different model
-ollama pull qwen3:8b          # larger, better reasoning, slower
-ollama pull qwen2.5:1.5b      # smaller, faster, less accurate
+python -c "import sys; sys.path.insert(0, '.'); from fastapi.testclient import TestClient; import dashboard.app as app_mod; client = TestClient(app_mod.app); resp = client.post('/api/search/jobs', json={'query': 'Python Developer', 'location': '', 'limit': 10, 'no_ai': True}); print(resp.status_code); print(resp.json()['count'])"
+```
+
+A successful response returns HTTP 200 and a JSON list of jobs.
 
 # Use it with Hirevia
 python -m hirevia -q "python dev" --llm-model qwen3:8b

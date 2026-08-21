@@ -3,3 +3,8 @@ channels:
     username: "@freshershunt"
     enabled: true
     limit: 20
+
+  - name: "Another Job Channel"
+    username: "@fresheroffcampus"
+    enabled: true
+    limit: 20

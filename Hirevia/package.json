@@ -9,7 +9,7 @@
     "search": "python -m hirevia"
   },
   "keywords": ["job-search", "ai", "llm", "cli", "dashboard", "greenhouse", "ashby"],
-  "author": "Anirudh",
+  "author": "milind",
   "license": "MIT",
   "engines": {
     "node": ">=16.0.0"

@@ -305,6 +305,14 @@ def delete_job(job_id: int) -> bool:
         return cur.rowcount > 0
 
 
+def delete_all_jobs() -> int:
+    """Delete all stored job records. Returns the count of deleted jobs."""
+    with get_db() as conn:
+        cur = conn.execute("DELETE FROM jobs")
+        conn.commit()
+        return cur.rowcount
+
+
 # ─── Stats ─────────────────────────────────────────────────────────────────
 
 def get_stats() -> Dict[str, Any]:

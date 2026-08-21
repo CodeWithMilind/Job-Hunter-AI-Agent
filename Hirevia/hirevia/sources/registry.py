@@ -198,17 +198,15 @@ class SourceRegistry:
             config = {}
 
         telegram = TelegramSearch()
-
-        telegram.enabled = bool(
-            config.get("enabled", True)
-        )
+        telegram.enabled = bool(config.get("enabled", False))
 
         telegram.metadata = {
             **telegram.metadata,
             **(config.get("metadata", {}) or {}),
         }
 
-        self.register(telegram)
+        if telegram.enabled:
+            self.register(telegram)
 
     def register(self, source: JobSource) -> None:
         if source.source_type not in SOURCE_TYPES:

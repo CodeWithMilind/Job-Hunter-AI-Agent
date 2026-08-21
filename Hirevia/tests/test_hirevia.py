@@ -426,6 +426,70 @@ class TestLinkedInSource:
 # Interactive mode regression tests
 # ──────────────────────────────────────────────────────────────────────────────
 
+class TestUnifiedPipeline:
+    def test_pipeline_uses_shared_registry_and_dedup(self, monkeypatch):
+        from hirevia.pipeline import search_jobs
+
+        class FakeSource:
+            def __init__(self, name):
+                self.name = name
+                self.source_id = name.lower().replace(" ", "_")
+                self.source_type = "API"
+                self.enabled = True
+
+            def fetch_safely(self, query, **kwargs):
+                return MagicMock(
+                    jobs=[
+                        Job(title="Python Dev", company="Acme", location="Remote", url="https://example.com/a", source="", source_type="API"),
+                        Job(title="Python Dev", company="Acme", location="Remote", url="https://example.com/b", source="", source_type="API"),
+                        Job(title="Go Dev", company="Acme", location="Remote", url="https://example.com/c", source="", source_type="API"),
+                    ],
+                    error="",
+                )
+
+        class FakeRegistry:
+            @staticmethod
+            def from_yaml(path):
+                return FakeRegistry()
+
+            def enabled_sources(self, overrides=None):
+                return [FakeSource("Alpha"), FakeSource("Beta")]
+
+        class FakeCache:
+            def __init__(self, ttl_days=7):
+                pass
+
+            def filter_new(self, jobs):
+                return jobs
+
+            def mark_seen(self, jobs):
+                pass
+
+            def close(self):
+                pass
+
+        class FakeRater:
+            available = True
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def rate_jobs(self, jobs, profile, on_progress=None):
+                for job in jobs:
+                    job.score = 80
+                    job.rating = "Good"
+
+        monkeypatch.setattr("hirevia.pipeline.SourceRegistry", FakeRegistry)
+        monkeypatch.setattr("hirevia.pipeline.SeenJobsCache", FakeCache)
+        monkeypatch.setattr("hirevia.pipeline.AIRater", FakeRater)
+
+        jobs = search_jobs(query="python", ai_enabled=True, no_cache=True)
+        assert len(jobs) == 2
+        titles = {job.title for job in jobs}
+        assert titles == {"Python Dev", "Go Dev"}
+        assert all(job.score >= 0 for job in jobs)
+
+
 class TestInteractiveMode:
     def test_interactive_quit_no_crash(self, monkeypatch, capsys):
         """Regression: 'python -m hirevia' crashed with NameError: LLM_MODEL

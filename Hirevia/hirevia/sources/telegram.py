@@ -8,7 +8,11 @@ from typing import List
 
 import yaml
 from dotenv import load_dotenv
-from telethon import TelegramClient
+
+try:
+    from telethon import TelegramClient
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    TelegramClient = None
 
 from hirevia.models import Job
 from hirevia.sources.base import JobSource
@@ -163,6 +167,9 @@ class TelegramSearch(JobSource):
         )
 
     async def _fetch(self, limit: int) -> List[Job]:
+        if TelegramClient is None:
+            raise RuntimeError("Telethon is not installed; Telegram source is unavailable")
+
         api_id = int(os.environ["TELEGRAM_API_ID"])
         api_hash = os.environ["TELEGRAM_API_HASH"]
 
