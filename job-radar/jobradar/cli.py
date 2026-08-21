@@ -104,19 +104,22 @@ def search_jobs(
                         description=f"[red]{source.name}: error[/red]",
                     )
 
-    # Deduplicate by title + company
+    # Deduplicate normal sources, but keep Telegram jobs independent.
     seen = set()
     unique_jobs: List[Job] = []
-    for j in all_jobs:
-        key = (j.title.lower().strip(), j.company.lower().strip())
+    for job in all_jobs:
+        if job.source == "Telegram":
+            unique_jobs.append(job)
+            continue
+        key = (
+            job.title.lower().strip(),
+            job.company.lower().strip(),
+        )
         if key not in seen:
             seen.add(key)
-            unique_jobs.append(j)
+            unique_jobs.append(job)
     all_jobs = unique_jobs
-
-    if india_eligible_only:
-        all_jobs = [job for job in all_jobs if job.india_eligibility == INDIA_ELIGIBLE]
-        console.print(f"[green]✓ India eligible: {len(all_jobs)} jobs[/green]")
+    
 
     # Apply persistent seen-jobs cache
     cache = None
