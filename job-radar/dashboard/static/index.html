@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JobRadar Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        surface: { 50: '#f8fafc', 100: '#f1f5f9', 200: '#e2e8f0', 700: '#1e293b', 800: '#0f172a', 900: '#020617' },
+                        accent: { 400: '#22d3ee', 500: '#06b6d4', 600: '#0891b2' },
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background: #020617; color: #e2e8f0; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        .job-card { transition: all 0.15s ease; }
+        .job-card:hover { background: #1e293b; transform: translateX(2px); }
+        .job-card.active { background: #1e293b; border-left: 3px solid #06b6d4; }
+        .tab-active { color: #06b6d4; border-bottom: 2px solid #06b6d4; }
+        .score-bar { height: 6px; border-radius: 3px; background: #1e293b; overflow: hidden; }
+        .score-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+        .badge { padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+        .kanban-col { min-height: 200px; }
+        .activity-line { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; }
+        .glow { box-shadow: 0 0 20px rgba(6, 182, 212, 0.1); }
+        .fade-in { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .pulse-dot { animation: pulse-dot 1.5s infinite; }
+        .kbd { background: #1e293b; border: 1px solid #334155; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: monospace; }
+        textarea { field-sizing: content; min-height: 60px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<!-- Header -->
+<header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="text-2xl">🎯</div>
+            <h1 class="text-lg font-bold text-white">JobRadar</h1>
+            <span class="text-xs text-slate-500 font-medium">Dashboard</span>
+        </div>
+        <div class="flex items-center gap-4">
+            <div id="search-indicator" class="hidden flex items-center gap-2 text-amber-400 text-sm">
+                <span class="w-2 h-2 rounded-full bg-amber-400 pulse-dot"></span>
+                <span id="search-status-text">Searching...</span>
+            </div>
+            <button onclick="toggleActivityDrawer()" class="text-slate-400 hover:text-white text-sm flex items-center gap-1" title="Activity Log (L)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                Log
+            </button>
+            <span class="text-xs text-slate-600 hidden sm:block">
+                <span class="kbd">J</span>/<span class="kbd">K</span> navigate &nbsp;
+                <span class="kbd">A</span> apply &nbsp;
+                <span class="kbd">B</span> blacklist
+            </span>
+        </div>
+    </div>
+</header>
+
+<!-- Stats Bar -->
+<div class="border-b border-slate-800 bg-slate-900/50">
+    <div class="max-w-[1600px] mx-auto px-4 py-2 flex gap-6 overflow-x-auto" id="stats-bar">
+        <div class="stat-item flex items-center gap-2 text-sm">
+            <span class="text-slate-500">Total</span>
+            <span class="font-bold text-white" id="stat-total">0</span>
+        </div>
+        <div class="stat-item flex items-center gap-2 text-sm">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span class="text-slate-500">High Match</span>
+            <span class="font-bold text-emerald-400" id="stat-high">0</span>
+        </div>
+        <div class="stat-item flex items-center gap-2 text-sm">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span class="text-slate-500">Pending</span>
+            <span class="font-bold text-amber-400" id="stat-pending">0</span>
+        </div>
+        <div class="stat-item flex items-center gap-2 text-sm">
+            <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+            <span class="text-slate-500">Applied</span>
+            <span class="font-bold text-blue-400" id="stat-applied">0</span>
+        </div>
+        <div class="stat-item flex items-center gap-2 text-sm">
+            <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+            <span class="text-slate-500">Interviewing</span>
+            <span class="font-bold text-purple-400" id="stat-interviewing">0</span>
+        </div>
+        <div class="stat-item flex items-center gap-2 text-sm">
+            <span class="w-2 h-2 rounded-full bg-slate-500"></span>
+            <span class="text-slate-500">Rejected</span>
+            <span class="font-bold text-slate-400" id="stat-rejected">0</span>
+        </div>
+        <div class="stat-item flex items-center gap-2 text-sm">
+            <span class="text-slate-500">Avg Score</span>
+            <span class="font-bold text-cyan-400" id="stat-avg">0</span>
+        </div>
+    </div>
+</div>
+
+<!-- Tab Navigation -->
+<div class="border-b border-slate-800 bg-slate-900/30">
+    <div class="max-w-[1600px] mx-auto px-4 flex gap-6">
+        <button class="tab-btn py-3 text-sm font-medium text-slate-400 hover:text-white transition tab-active" data-tab="search" onclick="switchTab('search')">
+            🔍 Search & Review
+        </button>
+        <button class="tab-btn py-3 text-sm font-medium text-slate-400 hover:text-white transition" data-tab="kanban" onclick="switchTab('kanban')">
+            📋 Pipeline
+        </button>
+        <button class="tab-btn py-3 text-sm font-medium text-slate-400 hover:text-white transition" data-tab="config" onclick="switchTab('config')">
+            ⚙️ Config
+        </button>
+        <button class="tab-btn py-3 text-sm font-medium text-slate-400 hover:text-white transition" data-tab="sources" onclick="switchTab('sources')">
+            🧭 Sources & Resources
+        </button>
+    </div>
+</div>
+
+<!-- Main Content -->
+<main class="flex-1 max-w-[1600px] mx-auto w-full">
+
+    <!-- ═══ SEARCH & REVIEW TAB ═══ -->
+    <div id="tab-search" class="tab-content">
+        <!-- Search Bar -->
+        <div class="p-4 border-b border-slate-800">
+            <div class="flex gap-3 items-end">
+                <div class="flex-1">
+                    <label class="text-xs text-slate-500 mb-1 block">Search Query</label>
+                    <input id="search-query" type="text" placeholder='e.g. "python developer" or "ML engineer"'
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition"
+                        onkeydown="if(event.key==='Enter')triggerSearch()">
+                </div>
+                <div class="w-32">
+                    <label class="text-xs text-slate-500 mb-1 block">Limit</label>
+                    <input id="search-limit" type="number" value="50" min="10" max="200" step="10"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500 transition">
+                </div>
+                <div class="flex items-center gap-2 pb-0.5">
+                    <input id="search-noai" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500">
+                    <label for="search-noai" class="text-xs text-slate-400">No AI</label>
+                </div>
+                <button onclick="triggerSearch()"
+                    class="bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    Search All Sources
+                </button>
+            </div>
+            <!-- Filters -->
+            <div class="flex gap-4 mt-3 items-center flex-wrap">
+                <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500">Min Score:</label>
+                    <input id="filter-score" type="range" min="0" max="100" value="0" class="w-24 accent-cyan-500"
+                        oninput="document.getElementById('filter-score-val').textContent=this.value">
+                    <span id="filter-score-val" class="text-xs text-slate-400 w-6">0</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500">Status:</label>
+                    <select id="filter-status" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                        onchange="loadJobs()">
+                        <option value="">All</option>
+                        <option value="discovered">Discovered</option>
+                        <option value="reviewing">Reviewing</option>
+                        <option value="ready_to_apply">Ready to Apply</option>
+                        <option value="applied">Applied</option>
+                        <option value="interviewing">Interviewing</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="blacklisted">Blacklisted</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500">Source:</label>
+                    <select id="filter-source" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                        onchange="loadJobs()">
+                        <option value="">All</option>
+                    </select>
+                </div>
+                <label class="flex items-center gap-1 text-xs text-slate-400 cursor-pointer">
+                    <input id="filter-remote" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-cyan-500" onchange="loadJobs()">
+                    Remote Only
+                </label>
+                <label class="flex items-center gap-1 text-xs text-slate-400 cursor-pointer">
+                    <input id="filter-india-eligible" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-cyan-500" onchange="loadJobs()">
+                    India Eligible Only
+                </label>
+                <input id="filter-search" type="text" placeholder="Filter jobs..."
+                    class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white w-40 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                    oninput="debounceFilter()">
+                <button onclick="document.getElementById('filter-score').value=0;document.getElementById('filter-score-val').textContent='0';document.getElementById('filter-status').value='';document.getElementById('filter-source').value='';document.getElementById('filter-remote').checked=false;document.getElementById('filter-india-eligible').checked=false;document.getElementById('filter-search').value='';loadJobs()"
+                    class="text-xs text-slate-500 hover:text-white">Reset</button>
+            </div>
+        </div>
+
+        <!-- Job List + Inspector Split -->
+        <div class="flex" style="height: calc(100vh - 240px);">
+            <!-- Job List (Left) -->
+            <div id="job-list" class="w-[420px] border-r border-slate-800 overflow-y-auto flex-shrink-0">
+                <div id="job-list-empty" class="p-8 text-center text-slate-500">
+                    <div class="text-4xl mb-3">🔍</div>
+                    <div class="text-sm">No jobs yet. Run a search to get started.</div>
+                </div>
+                <div id="job-cards"></div>
+            </div>
+            <!-- Inspector (Right) -->
+            <div id="job-inspector" class="flex-1 overflow-y-auto p-6">
+                <div id="inspector-empty" class="h-full flex items-center justify-center text-slate-500">
+                    <div class="text-center">
+                        <div class="text-4xl mb-3">👈</div>
+                        <div class="text-sm">Select a job to inspect</div>
+                        <div class="text-xs text-slate-600 mt-2">Use <span class="kbd">J</span>/<span class="kbd">K</span> keys to navigate</div>
+                    </div>
+                </div>
+                <div id="inspector-content" class="hidden fade-in"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ KANBAN TAB ═══ -->
+    <div id="tab-kanban" class="tab-content hidden">
+        <div class="p-4 flex gap-4 overflow-x-auto" style="height: calc(100vh - 200px);">
+            <div class="kanban-col flex-1 min-w-[240px]" data-kanban-status="discovered">
+                <div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-800">
+                    <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+                    <span class="text-sm font-semibold text-slate-300">Discovered</span>
+                    <span class="badge bg-slate-800 text-slate-400 ml-auto" data-kanban-count="discovered">0</span>
+                </div>
+                <div class="space-y-2 kanban-cards" data-kanban-cards="discovered"></div>
+            </div>
+            <div class="kanban-col flex-1 min-w-[240px]" data-kanban-status="reviewing">
+                <div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-800">
+                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                    <span class="text-sm font-semibold text-slate-300">Reviewing</span>
+                    <span class="badge bg-amber-900/30 text-amber-400 ml-auto" data-kanban-count="reviewing">0</span>
+                </div>
+                <div class="space-y-2 kanban-cards" data-kanban-cards="reviewing"></div>
+            </div>
+            <div class="kanban-col flex-1 min-w-[240px]" data-kanban-status="ready_to_apply">
+                <div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-800">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span class="text-sm font-semibold text-slate-300">Ready to Apply</span>
+                    <span class="badge bg-emerald-900/30 text-emerald-400 ml-auto" data-kanban-count="ready_to_apply">0</span>
+                </div>
+                <div class="space-y-2 kanban-cards" data-kanban-cards="ready_to_apply"></div>
+            </div>
+            <div class="kanban-col flex-1 min-w-[240px]" data-kanban-status="applied">
+                <div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-800">
+                    <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+                    <span class="text-sm font-semibold text-slate-300">Applied</span>
+                    <span class="badge bg-blue-900/30 text-blue-400 ml-auto" data-kanban-count="applied">0</span>
+                </div>
+                <div class="space-y-2 kanban-cards" data-kanban-cards="applied"></div>
+            </div>
+            <div class="kanban-col flex-1 min-w-[240px]" data-kanban-status="interviewing">
+                <div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-800">
+                    <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+                    <span class="text-sm font-semibold text-slate-300">Interviewing</span>
+                    <span class="badge bg-purple-900/30 text-purple-400 ml-auto" data-kanban-count="interviewing">0</span>
+                </div>
+                <div class="space-y-2 kanban-cards" data-kanban-cards="interviewing"></div>
+            </div>
+            <div class="kanban-col flex-1 min-w-[240px]" data-kanban-status="rejected">
+                <div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-800">
+                    <span class="w-2 h-2 rounded-full bg-red-400"></span>
+                    <span class="text-sm font-semibold text-slate-300">Rejected / Skipped</span>
+                    <span class="badge bg-red-900/30 text-red-400 ml-auto" data-kanban-count="rejected">0</span>
+                </div>
+                <div class="space-y-2 kanban-cards" data-kanban-cards="rejected"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ CONFIG TAB ═══ -->
+    <div id="tab-config" class="tab-content hidden">
+        <div class="p-4 max-w-4xl">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Profile YAML -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-sm font-semibold text-white flex items-center gap-2">👤 profile.yaml</h3>
+                        <button onclick="saveConfig('profile_yaml')" class="text-xs bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1 rounded transition">Save</button>
+                    </div>
+                    <textarea id="config-profile" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 font-mono focus:outline-none focus:border-cyan-500 transition"
+                        rows="16" placeholder="# Profile YAML..."></textarea>
+                </div>
+                <!-- Companies YAML -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-sm font-semibold text-white flex items-center gap-2">🏢 companies.yaml</h3>
+                        <button onclick="saveConfig('companies_yaml')" class="text-xs bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1 rounded transition">Save</button>
+                    </div>
+                    <textarea id="config-companies" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 font-mono focus:outline-none focus:border-cyan-500 transition"
+                        rows="16" placeholder="# Companies YAML..."></textarea>
+                </div>
+            </div>
+            <!-- Bulk Save -->
+            <div class="mt-4 flex items-center gap-3">
+                <button onclick="saveAllConfig()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+                    💾 Save All Config
+                </button>
+                <span id="config-save-status" class="text-xs text-slate-500"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ SOURCES TAB ═══ -->
+    <div id="tab-sources" class="tab-content hidden p-4 max-w-5xl">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="text-lg font-semibold text-white">Sources & Resources</h2>
+                <p class="text-xs text-slate-500 mt-1">Configured in <code>sources.yaml</code>. Source failures never stop the remaining search.</p>
+            </div>
+            <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                <input id="filter-enabled-sources" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-cyan-500" onchange="renderSources()">
+                Enabled Sources
+            </label>
+        </div>
+        <div class="overflow-x-auto border border-slate-800 rounded-lg">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-800/70 text-xs uppercase text-slate-400"><tr>
+                    <th class="text-left p-3">Source</th><th class="text-left p-3">Type</th><th class="text-left p-3">Status</th><th class="text-right p-3">Jobs collected</th><th class="text-left p-3">Last successful fetch</th><th class="text-left p-3">Last error</th>
+                </tr></thead>
+                <tbody id="sources-table" class="divide-y divide-slate-800"></tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<!-- Activity Drawer -->
+<div id="activity-drawer" class="hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-700 z-50" style="height: 200px;">
+    <div class="flex items-center justify-between px-4 py-2 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-slate-300">📋 Activity Log</span>
+            <span class="text-xs text-slate-500" id="activity-count">0 entries</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="clearActivity()" class="text-xs text-slate-500 hover:text-white">Clear</button>
+            <button onclick="toggleActivityDrawer()" class="text-slate-400 hover:text-white">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+    </div>
+    <div id="activity-log" class="overflow-y-auto p-3 activity-line" style="height: 148px;"></div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="hidden fixed top-16 right-4 bg-slate-800 border border-slate-600 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50 fade-in"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════
+let state = {
+    jobs: [],
+    selectedJobId: null,
+    activeTab: 'search',
+    activityOpen: false,
+    activityPoller: null,
+    searchPoller: null,
+    filterDebounce: null,
+    sources: [],
+};
+
+const STATUS_COLORS = {
+    discovered: 'bg-slate-700 text-slate-300',
+    reviewing: 'bg-amber-900/40 text-amber-400',
+    ready_to_apply: 'bg-emerald-900/40 text-emerald-400',
+    applied: 'bg-blue-900/40 text-blue-400',
+    interviewing: 'bg-purple-900/40 text-purple-400',
+    rejected: 'bg-red-900/40 text-red-400',
+    blacklisted: 'bg-red-950/40 text-red-500',
+};
+
+const STATUS_LABELS = {
+    discovered: 'Discovered',
+    reviewing: 'Reviewing',
+    ready_to_apply: 'Ready',
+    applied: 'Applied',
+    interviewing: 'Interview',
+    rejected: 'Rejected',
+    blacklisted: 'Blacklisted',
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// API HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+async function api(path, opts = {}) {
+    const res = await fetch(path, {
+        headers: { 'Content-Type': 'application/json', ...opts.headers },
+        ...opts,
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+    return res.json();
+}
+
+function scoreColor(score) {
+    if (score > 80) return '#10b981';
+    if (score > 60) return '#06b6d4';
+    if (score > 40) return '#f59e0b';
+    if (score > 20) return '#f97316';
+    return '#ef4444';
+}
+
+function timeAgo(ts) {
+    const diff = Date.now() / 1000 - ts;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function showToast(msg, duration = 2500) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => el.classList.add('hidden'), duration);
+}
+
+function truncate(str, len = 120) {
+    if (!str) return '';
+    return str.length > len ? str.slice(0, len) + '...' : str;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB SWITCHING
+// ═══════════════════════════════════════════════════════════════════════════
+function switchTab(tab) {
+    state.activeTab = tab;
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+    document.getElementById(`tab-${tab}`).classList.remove('hidden');
+    document.querySelectorAll('.tab-btn').forEach(el => {
+        el.classList.toggle('tab-active', el.dataset.tab === tab);
+    });
+    if (tab === 'kanban') loadKanban();
+    if (tab === 'config') loadConfig();
+    if (tab === 'sources') loadSources();
+    if (tab === 'search') loadJobs();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadStats() {
+    try {
+        const s = await api('/api/stats');
+        document.getElementById('stat-total').textContent = s.total;
+        document.getElementById('stat-high').textContent = s.high_match;
+        document.getElementById('stat-pending').textContent =
+            (s.by_status.discovered || 0) + (s.by_status.reviewing || 0);
+        document.getElementById('stat-applied').textContent = s.by_status.applied || 0;
+        document.getElementById('stat-interviewing').textContent = s.by_status.interviewing || 0;
+        document.getElementById('stat-rejected').textContent =
+            (s.by_status.rejected || 0) + (s.by_status.blacklisted || 0);
+        document.getElementById('stat-avg').textContent = s.avg_score;
+
+        // Populate source filter
+        const srcSel = document.getElementById('filter-source');
+        const currentVal = srcSel.value;
+        const existingOpts = new Set(Array.from(srcSel.options).map(o => o.value));
+        for (const src of Object.keys(s.by_source)) {
+            if (!existingOpts.has(src)) {
+                const opt = document.createElement('option');
+                opt.value = src;
+                opt.textContent = `${src} (${s.by_source[src]})`;
+                srcSel.appendChild(opt);
+            }
+        }
+        srcSel.value = currentVal;
+    } catch (e) {
+        console.error('Stats failed:', e);
+    }
+}
+
+async function loadSources() {
+    try {
+        const data = await api('/api/sources');
+        state.sources = data.sources;
+        renderSources();
+    } catch (e) {
+        console.error('Sources failed:', e);
+    }
+}
+
+function renderSources() {
+    const enabledOnly = document.getElementById('filter-enabled-sources').checked;
+    const sources = state.sources.filter(s => !enabledOnly || s.enabled);
+    document.getElementById('sources-table').innerHTML = sources.map(s => `
+        <tr>
+            <td class="p-3 text-white font-medium">${esc(s.name)}</td>
+            <td class="p-3 text-slate-400">${esc(s.type)}</td>
+            <td class="p-3">${s.enabled ? '<span class="text-emerald-400">Enabled</span>' : '<span class="text-slate-500">Disabled</span>'}</td>
+            <td class="p-3 text-right text-slate-300">${s.jobs_collected || 0}</td>
+            <td class="p-3 text-slate-400">${s.last_success ? timeAgo(s.last_success) : '—'}</td>
+            <td class="p-3 text-red-400">${s.last_error ? esc(truncate(s.last_error, 90)) : '—'}</td>
+        </tr>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// JOB LIST
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadJobs() {
+    const params = new URLSearchParams();
+    const status = document.getElementById('filter-status').value;
+    const source = document.getElementById('filter-source').value;
+    const minScore = document.getElementById('filter-score').value;
+    const remote = document.getElementById('filter-remote').checked;
+    const indiaEligible = document.getElementById('filter-india-eligible').checked;
+    const search = document.getElementById('filter-search').value;
+
+    if (status) params.set('status', status);
+    if (source) params.set('source', source);
+    if (minScore > 0) params.set('min_score', minScore);
+    if (remote) params.set('remote', 'true');
+    if (indiaEligible) params.set('india_eligible', 'true');
+    if (search) params.set('search', search);
+    params.set('sort_by', 'score');
+    params.set('sort_order', 'DESC');
+
+    try {
+        const data = await api(`/api/jobs?${params}`);
+        state.jobs = data.jobs;
+        renderJobList();
+        document.getElementById('job-list-empty').classList.toggle('hidden', state.jobs.length > 0);
+    } catch (e) {
+        console.error('Load jobs failed:', e);
+    }
+}
+
+function renderJobList() {
+    const container = document.getElementById('job-cards');
+    container.innerHTML = state.jobs.map((j, i) => `
+        <div class="job-card px-4 py-3 border-b border-slate-800/50 cursor-pointer ${j.id === state.selectedJobId ? 'active' : ''}"
+             onclick="selectJob(${j.id})" data-job-index="${i}" data-job-id="${j.id}">
+            <div class="flex items-start justify-between gap-2">
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-white truncate">${esc(j.title)}</div>
+                    <div class="text-xs text-slate-400 truncate">${esc(j.company)} · ${esc(j.location)}</div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    ${j.remote ? '<span class="text-xs text-emerald-400">🌍</span>' : ''}
+                    <span class="badge ${STATUS_COLORS[j.status] || 'bg-slate-700 text-slate-400'}">${STATUS_LABELS[j.status] || j.status}</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-3 mt-2">
+                <div class="score-bar flex-1">
+                    <div class="score-fill" style="width:${j.score}%; background:${scoreColor(j.score)}"></div>
+                </div>
+                <span class="text-xs font-bold" style="color:${scoreColor(j.score)}">${j.score}</span>
+                <span class="text-xs text-slate-500">${esc(j.source)}</span>
+                <span class="text-xs text-slate-600">${j.salary ? esc(j.salary) : ''}</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function selectJob(jobId) {
+    state.selectedJobId = jobId;
+    renderJobList();
+    renderInspector();
+    // Highlight in kanban too
+    document.querySelectorAll('.kanban-card').forEach(el => {
+        el.classList.toggle('ring-1', parseInt(el.dataset.jobId) === jobId);
+        el.classList.toggle('ring-cyan-500', parseInt(el.dataset.jobId) === jobId);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INSPECTOR
+// ═══════════════════════════════════════════════════════════════════════════
+function renderInspector() {
+    const job = state.jobs.find(j => j.id === state.selectedJobId);
+    const empty = document.getElementById('inspector-empty');
+    const content = document.getElementById('inspector-content');
+
+    if (!job) {
+        empty.classList.remove('hidden');
+        content.classList.add('hidden');
+        return;
+    }
+
+    empty.classList.add('hidden');
+    content.classList.remove('hidden');
+
+    const tags = (job.tags || []).map(t => `<span class="badge bg-slate-700 text-slate-300">${esc(t)}</span>`).join(' ');
+
+    content.innerHTML = `
+        <div class="max-w-3xl">
+            <!-- Header -->
+            <div class="flex items-start justify-between mb-4">
+                <div>
+                    <h2 class="text-xl font-bold text-white">${esc(job.title)}</h2>
+                    <div class="text-sm text-slate-400 mt-1">${esc(job.company)} · ${esc(job.location)} · ${esc(job.source)}</div>
+                    ${job.salary ? `<div class="text-sm text-emerald-400 mt-1">💰 ${esc(job.salary)}</div>` : ''}
+                </div>
+                <div class="text-right">
+                    <div class="text-3xl font-bold" style="color:${scoreColor(job.score)}">${job.score}</div>
+                    <div class="text-xs text-slate-500">${esc(job.rating)}</div>
+                </div>
+            </div>
+
+            <!-- Score Breakdown -->
+            <div class="grid grid-cols-4 gap-3 mb-4">
+                ${scoreMetric('Skills', job.skills_match)}
+                ${scoreMetric('Experience', job.experience_fit)}
+                ${scoreMetric('Salary', job.salary_fit)}
+                ${scoreMetric('Remote', job.remote_fit)}
+            </div>
+
+            <!-- LLM Reasoning -->
+            ${job.reasoning ? `
+            <div class="mb-4 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                <div class="text-xs font-semibold text-slate-400 mb-1">🤖 AI Reasoning</div>
+                <div class="text-sm text-slate-300">${esc(job.reasoning)}</div>
+            </div>
+            ` : ''}
+
+            <!-- Tags -->
+            ${tags ? `<div class="mb-4 flex flex-wrap gap-1">${tags}</div>` : ''}
+
+            <!-- Description -->
+            <div class="mb-4">
+                <h3 class="text-xs font-semibold text-slate-400 mb-2">Description</h3>
+                <div class="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto bg-slate-800/30 rounded-lg p-3">
+                    ${esc(job.description || 'No description available')}
+                </div>
+            </div>
+
+
+
+            <!-- Actions -->
+            <div class="flex flex-wrap gap-2">
+                <a href="${esc(job.url)}" target="_blank" rel="noopener"
+                   class="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium px-3 py-2 rounded-lg transition inline-flex items-center gap-1">
+                    🔗 Open Job URL
+                </a>
+                <button onclick="updateStatus(${job.id}, 'reviewing')"
+                    class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium px-3 py-2 rounded-lg transition">
+                    👁️ Start Review
+                </button>
+                <button onclick="updateStatus(${job.id}, 'ready_to_apply')"
+                    class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-3 py-2 rounded-lg transition">
+                    ✅ Ready to Apply
+                </button>
+                <button onclick="updateStatus(${job.id}, 'applied')"
+                    class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-3 py-2 rounded-lg transition">
+                    📨 Mark Applied
+                </button>
+                <button onclick="updateStatus(${job.id}, 'interviewing')"
+                    class="bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium px-3 py-2 rounded-lg transition">
+                    🎤 Interview
+                </button>
+                <button onclick="updateStatus(${job.id}, 'rejected')"
+                    class="bg-red-600/50 hover:bg-red-600 text-white text-xs font-medium px-3 py-2 rounded-lg transition">
+                    ❌ Reject
+                </button>
+                <button onclick="updateStatus(${job.id}, 'blacklisted')"
+                    class="bg-red-900/50 hover:bg-red-900 text-red-400 text-xs font-medium px-3 py-2 rounded-lg transition">
+                    🚫 Blacklist
+                </button>
+            </div>
+
+            <!-- Meta -->
+            <div class="mt-4 text-xs text-slate-600">
+                ID: ${job.id} · Created: ${job.created_at ? timeAgo(job.created_at) : 'N/A'}
+                ${job.posted ? ` · Posted: ${esc(job.posted)}` : ''}
+            </div>
+        </div>
+    `;
+}
+
+function scoreMetric(label, value) {
+    return `
+        <div class="bg-slate-800/50 rounded-lg p-2">
+            <div class="text-[10px] text-slate-500 mb-1">${label}</div>
+            <div class="text-sm font-bold" style="color:${scoreColor(value)}">${value}</div>
+            <div class="score-bar mt-1"><div class="score-fill" style="width:${value}%;background:${scoreColor(value)}"></div></div>
+        </div>
+    `;
+}
+
+function esc(str) {
+    if (!str) return '';
+    const el = document.createElement('span');
+    el.textContent = str;
+    return el.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+async function updateStatus(jobId, status) {
+    try {
+        await api(`/api/jobs/${jobId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status }),
+        });
+        showToast(`Status → ${STATUS_LABELS[status] || status}`);
+        loadJobs();
+        loadStats();
+        if (state.activeTab === 'kanban') loadKanban();
+    } catch (e) {
+        showToast(`Error: ${e.message}`);
+    }
+}
+
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SEARCH
+// ═══════════════════════════════════════════════════════════════════════════
+async function triggerSearch() {
+    const query = document.getElementById('search-query').value.trim();
+    if (!query) return showToast('Enter a search query');
+
+    const limit = parseInt(document.getElementById('search-limit').value) || 50;
+    const noAi = document.getElementById('search-noai').checked;
+
+    try {
+        await api('/api/search', {
+            method: 'POST',
+            body: JSON.stringify({ query, limit, no_ai: noAi }),
+        });
+        showToast('🔍 Search started!');
+        startSearchPoller();
+    } catch (e) {
+        showToast(`Error: ${e.message}`);
+    }
+}
+
+function startSearchPoller() {
+    const indicator = document.getElementById('search-indicator');
+    const statusText = document.getElementById('search-status-text');
+    indicator.classList.remove('hidden');
+
+    clearInterval(state.searchPoller);
+    state.searchPoller = setInterval(async () => {
+        try {
+            const s = await api('/api/search/status');
+            statusText.textContent = s.message || 'Searching...';
+            if (!s.running) {
+                clearInterval(state.searchPoller);
+                indicator.classList.add('hidden');
+                loadJobs();
+                loadStats();
+                showToast('✅ Search complete!');
+            }
+        } catch (e) {
+            clearInterval(state.searchPoller);
+            indicator.classList.add('hidden');
+        }
+    }, 1500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KANBAN
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadKanban() {
+    try {
+        const data = await api('/api/jobs?limit=500&sort_by=score&sort_order=DESC');
+        const jobs = data.jobs;
+
+        const statuses = ['discovered', 'reviewing', 'ready_to_apply', 'applied', 'interviewing', 'rejected'];
+        for (const status of statuses) {
+            const container = document.querySelector(`[data-kanban-cards="${status}"]`);
+            const countEl = document.querySelector(`[data-kanban-count="${status}"]`);
+            const statusJobs = jobs.filter(j => j.status === status);
+            countEl.textContent = statusJobs.length;
+
+            container.innerHTML = statusJobs.map(j => `
+                <div class="kanban-card bg-slate-800/80 rounded-lg p-3 cursor-pointer hover:bg-slate-700/80 transition border border-slate-700/50"
+                     data-job-id="${j.id}" onclick="selectJob(${j.id}); switchTab('search');">
+                    <div class="text-xs font-medium text-white truncate">${esc(j.title)}</div>
+                    <div class="text-[11px] text-slate-400 truncate">${esc(j.company)}</div>
+                    <div class="flex items-center gap-2 mt-1.5">
+                        <div class="score-bar flex-1"><div class="score-fill" style="width:${j.score}%;background:${scoreColor(j.score)}"></div></div>
+                        <span class="text-[10px] font-bold" style="color:${scoreColor(j.score)}">${j.score}</span>
+                        ${j.remote ? '<span class="text-[10px]">🌍</span>' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+    } catch (e) {
+        console.error('Kanban load failed:', e);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadConfig() {
+    try {
+        const profile = await api('/api/config?key=profile_yaml');
+        document.getElementById('config-profile').value = profile.value || '';
+    } catch (e) { /* ignore */ }
+    try {
+        const companies = await api('/api/config?key=companies_yaml');
+        document.getElementById('config-companies').value = companies.value || '';
+    } catch (e) { /* ignore */ }
+}
+
+async function saveConfig(key) {
+    const elId = key === 'profile_yaml' ? 'config-profile' : 'config-companies';
+    const value = document.getElementById(elId).value;
+    try {
+        await api('/api/config/one', {
+            method: 'PUT',
+            body: JSON.stringify({ key, value }),
+        });
+        document.getElementById('config-save-status').textContent = `✅ ${key} saved`;
+        showToast(`${key} saved`);
+    } catch (e) {
+        showToast(`Error: ${e.message}`);
+    }
+}
+
+async function saveAllConfig() {
+    try {
+        await api('/api/config', {
+            method: 'PUT',
+            body: JSON.stringify({
+                configs: {
+                    profile_yaml: document.getElementById('config-profile').value,
+                    companies_yaml: document.getElementById('config-companies').value,
+                }
+            }),
+        });
+        document.getElementById('config-save-status').textContent = '✅ All config saved';
+        showToast('All config saved');
+    } catch (e) {
+        showToast(`Error: ${e.message}`);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIVITY LOG
+// ═══════════════════════════════════════════════════════════════════════════
+function toggleActivityDrawer() {
+    state.activityOpen = !state.activityOpen;
+    document.getElementById('activity-drawer').classList.toggle('hidden', !state.activityOpen);
+    if (state.activityOpen) {
+        loadActivity();
+        state.activityPoller = setInterval(loadActivity, 3000);
+    } else {
+        clearInterval(state.activityPoller);
+    }
+}
+
+async function loadActivity() {
+    try {
+        const data = await api('/api/activity?limit=80');
+        const log = document.getElementById('activity-log');
+        document.getElementById('activity-count').textContent = `${data.count} entries`;
+
+        log.innerHTML = data.logs.map(l => {
+            const color = { info: 'text-slate-400', success: 'text-emerald-400', warning: 'text-amber-400', error: 'text-red-400' }[l.level] || 'text-slate-400';
+            return `<div class="${color}">${new Date(l.timestamp * 1000).toLocaleTimeString()} ${l.message}</div>`;
+        }).join('');
+
+        log.scrollTop = 0;
+    } catch (e) {
+        console.error('Activity load failed:', e);
+    }
+}
+
+async function clearActivity() {
+    try {
+        await api('/api/activity', { method: 'DELETE' });
+        loadActivity();
+    } catch (e) {
+        showToast(`Error: ${e.message}`);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KEYBOARD NAVIGATION
+// ═══════════════════════════════════════════════════════════════════════════
+document.addEventListener('keydown', (e) => {
+    // Ignore if typing in an input
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+
+    const currentIndex = state.jobs.findIndex(j => j.id === state.selectedJobId);
+
+    switch (e.key.toLowerCase()) {
+        case 'j': // Next job
+            e.preventDefault();
+            if (state.jobs.length === 0) break;
+            const nextIdx = currentIndex < state.jobs.length - 1 ? currentIndex + 1 : 0;
+            selectJob(state.jobs[nextIdx].id);
+            scrollToJob(nextIdx);
+            break;
+        case 'k': // Previous job
+            e.preventDefault();
+            if (state.jobs.length === 0) break;
+            const prevIdx = currentIndex > 0 ? currentIndex - 1 : state.jobs.length - 1;
+            selectJob(state.jobs[prevIdx].id);
+            scrollToJob(prevIdx);
+            break;
+        case 'a': // Mark applied
+            e.preventDefault();
+            if (state.selectedJobId) updateStatus(state.selectedJobId, 'applied');
+            break;
+        case 'b': // Blacklist
+            e.preventDefault();
+            if (state.selectedJobId) updateStatus(state.selectedJobId, 'blacklisted');
+            break;
+        case 'r': // Start review
+            e.preventDefault();
+            if (state.selectedJobId) updateStatus(state.selectedJobId, 'reviewing');
+            break;
+        case 'l': // Toggle activity log
+            e.preventDefault();
+            toggleActivityDrawer();
+            break;
+        case '1': switchTab('search'); break;
+        case '2': switchTab('kanban'); break;
+        case '3': switchTab('config'); break;
+    }
+});
+
+function scrollToJob(index) {
+    const card = document.querySelector(`[data-job-index="${index}"]`);
+    if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FILTER DEBOUNCE
+// ═══════════════════════════════════════════════════════════════════════════
+function debounceFilter() {
+    clearTimeout(state.filterDebounce);
+    state.filterDebounce = setTimeout(loadJobs, 300);
+}
+
+// Also debounce score slider
+document.getElementById('filter-score')?.addEventListener('input', () => {
+    clearTimeout(state.filterDebounce);
+    state.filterDebounce = setTimeout(loadJobs, 200);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════
+(async function init() {
+    await loadStats();
+    await loadJobs();
+    await loadSources();
+
+    // Auto-refresh stats every 30s
+    setInterval(loadStats, 30000);
+})();
+</script>
+
+</body>
+</html>

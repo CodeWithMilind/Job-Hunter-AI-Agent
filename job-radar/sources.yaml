@@ -1,0 +1,11 @@
+# Toggle built-in sources without modifying Python code. Future RSS, Telegram,
+# company career-page, and custom sources use the same registry contract.
+sources:
+  remotive: { enabled: true }
+  arbeitnow: { enabled: true }
+  remoteok: { enabled: true }
+  jobicy: { enabled: true }
+  himalayas: { enabled: true }
+  greenhouse: { enabled: true }
+  ashby: { enabled: true }
+  linkedin: { enabled: false }

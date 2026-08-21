@@ -1,0 +1,31 @@
+# Job Hunter — Company Configuration
+# ATS sources: Greenhouse and Ashby
+
+greenhouse:
+  - gitlab
+  - stripe
+  - cloudflare
+  - datadog
+  - elastic
+  - posthog
+  - grafana
+  - gitbook
+  - notion
+  - discord
+  - figma
+  - airbnb
+  - shopify
+
+ashby:
+  - openai
+  - anthropic
+  - linear
+  - resend
+  - clerk
+  - supabase
+  - vercel
+  - railway
+  - render
+  - neon
+  - posthog
+  - attio
