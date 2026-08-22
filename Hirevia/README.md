@@ -4,7 +4,43 @@ Hirevia is a single, shared job-search pipeline that runs the same search flow f
 
 The project reuses the existing `Job` model, `SourceRegistry`, built-in sources, cache, database, and AI scoring so there is one authoritative search path instead of two separate implementations.
 
-Telegram is not required for normal job search. The default registry keeps Telegram disabled unless you explicitly opt in.
+## Phase 1 quality gates
+
+The shared pipeline now keeps fewer, fresher, more relevant opportunities:
+
+```text
+Query intent -> discovery -> normalize -> expiration -> stable deduplication
+-> deterministic relevance -> semantic LLM relevance -> freshness
+-> application-link state -> cache -> profile scoring -> final ranking
+```
+
+- Explicitly closed or expired jobs and passed deadlines are rejected. Old posted dates alone are not rejected, and invalid dates remain safe.
+- Duplicate identity prefers normalized application URLs, source/external IDs, and then company + role + location. Tracking parameters and trailing slashes are normalized.
+- Freshness is deterministic from published/posted/updated timestamps with bands for under 1 hour, 6 hours, 24 hours, 1-3 days, and older jobs.
+- Application links are classified as `verified_active`, `verified_unavailable`, or `unknown`. Only definitive 404/410-style unavailability is filtered; network failures remain unknown.
+- Multi-word searches use title-dominant relevance with skills/technology support and role variations. Obvious conflicts such as Java Developer for a Python Developer search are excluded. Single-word discovery remains broad.
+
+Known limitations: public source APIs do not expose consistent deadlines or external IDs, and link verification can be unknown when sites require authentication, block automated requests, or time out.
+
+## Optional LLM relevance
+
+When AI is enabled, Hirevia uses the existing local LLM integration in two connected stages: query understanding creates a structured intent, then a bounded set of deterministic candidates is evaluated semantically. LLM results are stored in safe job metadata, directly remove low-confidence irrelevant candidates, and influence final ranking alongside deterministic relevance, freshness, application quality, and profile scoring. Query intents and job evaluations are cached in memory for the process lifetime. Invalid JSON, incomplete output, timeouts, unavailable models, and connection failures fall back to deterministic results.
+
+Configure an existing local endpoint with `LLM_ENABLED=true`, `LLM_BASE_URL` (or the existing `LLM_URL`), and `LLM_MODEL`. The dashboard's **No AI** option disables all LLM calls and returns deterministic results with `AI disabled` instead of a synthetic AI score. `LLM_CANDIDATE_LIMIT` caps semantic candidates at 30 by default. Prompts contain only query intent and public job fields; credentials and internal IDs are excluded.
+
+`LLM_TIMEOUT_SECONDS` bounds model requests and defaults to 20 seconds, allowing a bounded cold model load while preventing long per-job stalls.
+
+## NVIDIA multi-model AI
+
+The optional NVIDIA path uses one reusable OpenAI-compatible client with three configured responsibilities:
+
+- `QUERY_MODEL` analyzes the user's query into structured intent.
+- `JOB_ANALYSIS_MODEL` evaluates bounded deterministic candidates.
+- `RANKING_MODEL` performs one final candidate-ranking call.
+
+Configure these with `NVIDIA_API_KEY` and `NVIDIA_BASE_URL` in the ignored `.env` file. `LLM_MAX_CANDIDATES` limits job-analysis and ranking candidates. No AI mode makes zero NVIDIA or local-LLM calls. Any model timeout, API failure, invalid JSON, or unavailable model falls back to deterministic filtering and ranking; prompts never contain credentials or internal IDs.
+
+Telegram is optional but enabled in the checked-in configuration; missing Telethon, credentials, or an authorized session are handled without breaking other sources.
 
 ## Unified architecture
 
@@ -16,8 +52,8 @@ CLI ───────────────┐
              SourceRegistry
                    ↓
          Normalize + Deduplicate
-                   ↓
-            Cache / Database
+                       ↓
+                  Quality gates + Cache / Database
                    ↓
              AI Scoring
                    ↓
@@ -25,6 +61,10 @@ CLI ───────────────┐
                    ↓
 Frontend/API ──────┘
 ```
+
+## Source coverage and compliance
+
+The registry currently supports Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, Greenhouse, Ashby, and public Telegram channels. LinkedIn is retained as a disabled opt-in adapter. Indeed, Naukri, Glassdoor, Wellfound, Internshala, Cutshort, Foundit, Hirist, TimesJobs, Workday, and other login/anti-bot platforms remain unsupported until a permitted API, partner integration, or public feed is available. Hirevia does not bypass authentication, CAPTCHA, robots rules, anti-bot controls, or rate limits.
 
 The shared pipeline in `hirevia/pipeline.py` is the source of truth for:
 

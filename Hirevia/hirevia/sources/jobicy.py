@@ -56,6 +56,7 @@ class JobicySearch:
                     description=(item.get("jobDescription") or "")[:500],
                     salary=salary,
                     source=JobicySearch.SOURCE,
+                    source_metadata={"source_job_id": str(item.get("id"))} if item.get("id") else {},
                     remote=True,
                     country=item.get("country", ""),
                     timezone=item.get("timezone", ""),

@@ -155,6 +155,7 @@ def _normalize_job(job_data: dict, company: str) -> Optional[Job]:
         description=(job_data.get("descriptionPlain", "") or job_data.get("descriptionHtml", ""))[:500],
         salary=salary,
         source="Ashby",
+        source_metadata={"source_job_id": str(job_id)} if job_id else {},
         remote=_detect_remote(job_data),
         location_restrictions=location_parts,
         country=job_data.get("country", ""),

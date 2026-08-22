@@ -610,7 +610,7 @@ function renderJobCards(containerId, telegram) {
                 <div class="score-bar flex-1">
                     <div class="score-fill" style="width:${j.score}%; background:${scoreColor(j.score)}"></div>
                 </div>
-                <span class="text-xs font-bold" style="color:${scoreColor(j.score)}">${j.score}</span>
+                <span class="text-xs font-bold" style="color:${scoreColor(j.score)}">${j.rating === 'AI disabled' ? '—' : j.score}</span>
                 <span class="text-xs text-slate-500">${esc(j.source)}</span>
                 <span class="text-xs text-slate-600">${j.salary ? esc(j.salary) : ''}</span>
             </div>
@@ -708,7 +708,7 @@ function renderInspector(prefix = '') {
                     ${job.salary ? `<div class="text-sm text-emerald-400 mt-1">💰 ${esc(job.salary)}</div>` : ''}
                 </div>
                 <div class="text-right">
-                    <div class="text-3xl font-bold" style="color:${scoreColor(job.score)}">${job.score}</div>
+                    <div class="text-3xl font-bold" style="color:${scoreColor(job.score)}">${job.rating === 'AI disabled' ? '—' : job.score}</div>
                     <div class="text-xs text-slate-500">${esc(job.rating)}</div>
                 </div>
             </div>
@@ -728,6 +728,20 @@ function renderInspector(prefix = '') {
                 <div class="text-sm text-slate-300">${esc(job.reasoning)}</div>
             </div>
             ` : ''}
+
+            ${job.source_metadata?.llm_relevance_reason ? `
+            <div class="mb-4 p-3 bg-cyan-950/20 rounded-lg border border-cyan-900/50">
+                <div class="text-xs font-semibold text-cyan-300 mb-1">✨ Why it matches</div>
+                <div class="text-sm text-slate-300">${esc(job.source_metadata.llm_relevance_reason)}</div>
+                ${(job.source_metadata.llm_matched_skills || []).length ? `<div class="text-xs text-slate-400 mt-2">Matched: ${esc(job.source_metadata.llm_matched_skills.join(', '))}</div>` : ''}
+            </div>` : ''}
+
+            ${job.source_metadata?.nvidia_relevance !== undefined ? `
+            <div class="mb-4 p-3 bg-cyan-950/20 rounded-lg border border-cyan-900/50">
+                <div class="text-xs font-semibold text-cyan-300 mb-1">NVIDIA AI relevance: ${job.source_metadata.nvidia_relevance}%</div>
+                <div class="text-xs text-slate-400">Role ${job.source_metadata.nvidia_role_match || 0}% · Skills ${job.source_metadata.nvidia_skill_match || 0}% · Technology ${job.source_metadata.nvidia_technology_match || 0}% · Seniority ${job.source_metadata.nvidia_seniority_match || 0}%</div>
+                ${(job.source_metadata.nvidia_matched_requirements || []).length ? `<div class="text-xs text-emerald-300 mt-2">Matched: ${esc(job.source_metadata.nvidia_matched_requirements.join(', '))}</div>` : ''}
+            </div>` : ''}
 
             <!-- Tags -->
             ${tags ? `<div class="mb-4 flex flex-wrap gap-1">${tags}</div>` : ''}

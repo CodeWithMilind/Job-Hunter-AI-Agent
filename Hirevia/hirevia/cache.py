@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Set
 
 from hirevia.models import Job
+from hirevia.quality import duplicate_key, normalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -45,20 +46,15 @@ class SeenJobsCache:
         self.conn.commit()
 
     def _make_key(self, job: Job) -> tuple:
-        if job.source.lower().strip() == "telegram":
-            metadata = job.source_metadata or {}
-            identity = (
-                metadata.get("telegram_message_url")
-                or job.url
-                or metadata.get("telegram_message_id")
-            )
-            if identity:
-                return (identity.lower().strip(), "", "telegram")
-        return (
-            job.title.lower().strip(),
-            job.company.lower().strip(),
-            job.source.lower().strip(),
-        )
+        metadata = job.source_metadata or {}
+        has_stable_id = any(metadata.get(key) for key in (
+            "source_job_id", "job_id", "external_id", "stable_external_id",
+            "telegram_message_url",
+        ))
+        if normalize_url(job.url) or has_stable_id:
+            return (duplicate_key(job), "", "all")
+        # Keep the original lightweight fallback for malformed/missing URLs.
+        return (job.title.lower().strip(), job.company.lower().strip(), job.source.lower().strip())
 
     def filter_new(self, jobs: List[Job]) -> List[Job]:
         """Return only jobs not seen within the TTL window."""

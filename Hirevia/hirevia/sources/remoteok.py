@@ -70,6 +70,7 @@ class RemoteOKSearch:
                     description=(item.get("description") or "")[:500],
                     salary=salary,
                     source=RemoteOKSearch.SOURCE,
+                    source_metadata={"source_job_id": str(item.get("id") or item.get("slug"))} if (item.get("id") or item.get("slug")) else {},
                     remote=True,
                     country=item.get("country", ""),
                     timezone=item.get("timezone", ""),

@@ -11,7 +11,7 @@ build/
 .venv/
 venv/
 env/
-
+.env
 # Hirevia results and state
 results.json
 results.csv

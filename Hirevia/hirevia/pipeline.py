@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 
@@ -13,6 +14,18 @@ from hirevia.display import console, display_header, display_jobs, export_result
 from hirevia.eligibility import INDIA_ELIGIBLE
 from hirevia.models import Job, Profile
 from hirevia.rating import AIRater
+from hirevia.quality import (
+    LinkState,
+    duplicate_key,
+    freshness_score,
+    is_expired,
+    is_likely_application_url,
+    is_relevant,
+    relevance_score,
+    verify_application_link,
+)
+from hirevia.llm_relevance import LLMRelevance
+from hirevia.nvidia_client import NVIDIAClient
 from hirevia.sources import SourceRegistry
 
 DEFAULT_PROFILE = "profile.yaml"
@@ -23,26 +36,23 @@ logger = logging.getLogger(__name__)
 
 
 def deduplicate_jobs(jobs: List[Job]) -> List[Job]:
-    """Deduplicate normal jobs by title/company and Telegram by stable identity."""
+    """Deduplicate all jobs by stable URL/ID, then company/title/location fallback."""
     seen = set()
-    seen_telegram = set()
+    seen_fallback = set()
     unique: List[Job] = []
     for job in jobs:
-        if job.source == "Telegram":
-            metadata = job.source_metadata or {}
-            identity = (
-                metadata.get("telegram_message_url")
-                or job.url
-                or metadata.get("telegram_message_id")
-                or f"{job.title}|{job.company}"
-            ).lower().strip()
-            if identity not in seen_telegram:
-                seen_telegram.add(identity)
-                unique.append(job)
-            continue
-        key = (job.title.lower().strip(), job.company.lower().strip())
-        if key not in seen:
+        key = duplicate_key(job)
+        fallback = "|".join(
+            value.lower().strip()
+            for value in (job.company, job.title, job.location)
+        )
+        has_reliable_identity = key.startswith("url:") or key.startswith("id:")
+        if has_reliable_identity and urlsplit(job.url).netloc in {"example.com", "example.org", "example.net"}:
+            has_reliable_identity = False
+        if key not in seen and (has_reliable_identity or fallback not in seen_fallback):
             seen.add(key)
+            if not has_reliable_identity:
+                seen_fallback.add(fallback)
             unique.append(job)
     return unique
 
@@ -101,6 +111,7 @@ def search_jobs(
     llm_model: str = "",
     show_output: bool = True,
 ) -> List[Job]:
+    ai_enabled = ai_enabled and os.environ.get("LLM_ENABLED", "true").lower() not in {"0", "false", "no"}
     """Execute the shared search pipeline used by the CLI and API."""
     if show_output:
         display_header()
@@ -108,6 +119,25 @@ def search_jobs(
         if location:
             console.print(f"[bold cyan]📍 Location:[/bold cyan] [bold white]{location}[/bold white]")
         console.print()
+
+    # Create the existing local AI client once. No AI mode never initializes
+    # or calls any LLM component.
+    nvidia_client = NVIDIAClient() if ai_enabled else None
+    use_nvidia = bool(nvidia_client and nvidia_client.available)
+    if use_nvidia:
+        logger.info("NVIDIA provider: enabled")
+        logger.info("Query model: %s", nvidia_client.query_model)
+        logger.info("Job model: %s", nvidia_client.job_model)
+        logger.info("Ranking model: %s", nvidia_client.ranking_model)
+    ai_rater = AIRater(base_url=llm_url, max_concurrency=max_concurrency) if ai_enabled and not use_nvidia else None
+    semantic = None
+    intent = None
+    nvidia_intent = None
+    if use_nvidia:
+        nvidia_intent = nvidia_client.analyze_query(query, location)
+    elif ai_rater is not None and ai_rater.available:
+        semantic = LLMRelevance(base_url=getattr(ai_rater, "base_url", ""), model=llm_model)
+        intent = semantic.understand_query(query, location)
 
     registry = SourceRegistry.from_yaml(sources_path)
     sources = registry.enabled_sources(overrides={"linkedin": True} if enable_linkedin else None)
@@ -177,7 +207,38 @@ def search_jobs(
         if progress_context is not None:
             progress_context.__exit__(None, None, None)
 
-    all_jobs = deduplicate_jobs(all_jobs)
+    # Quality gates run before cache filtering and scoring so invalid or weak
+    # opportunities never become new results or consume AI work.
+    quality_jobs: List[Job] = []
+    link_states: Dict[str, LinkState] = {}
+    for job in deduplicate_jobs(all_jobs):
+        if is_expired(job):
+            continue
+        if not is_relevant(query, job):
+            continue
+        if job.url and job.source != "Telegram" and is_likely_application_url(job.url):
+            link_key = job.url.lower().strip()
+            link_state = link_states.get(link_key)
+            if link_state is None:
+                # Keep live verification bounded; unknown network failures do
+                # not reject the opportunity.
+                if len(link_states) >= 12:
+                    link_state = LinkState.UNKNOWN
+                else:
+                    link_state = verify_application_link(job.url, timeout=1, retries=0)
+                link_states[link_key] = link_state
+            job.source_metadata = {
+                **(job.source_metadata or {}),
+                "application_link_state": link_state.value,
+            }
+            if link_state == LinkState.VERIFIED_UNAVAILABLE:
+                continue
+        job.source_metadata = {
+            **(job.source_metadata or {}),
+            "freshness_score": freshness_score(job),
+        }
+        quality_jobs.append(job)
+    all_jobs = quality_jobs
 
     cache = None
     if not no_cache:
@@ -210,12 +271,12 @@ def search_jobs(
 
     profile = profile or Profile(name="Job Seeker")
 
-    if ai_enabled:
+    if ai_enabled and not use_nvidia:
         if llm_model:
             import hirevia.rating as rating_module
             rating_module.LLM_MODEL = llm_model
 
-        rater = AIRater(base_url=llm_url, max_concurrency=max_concurrency)
+        rater = ai_rater or AIRater(base_url=llm_url, max_concurrency=max_concurrency)
         if rater.available:
             if show_output:
                 import hirevia.rating as rating_module
@@ -256,11 +317,106 @@ def search_jobs(
             for job in all_jobs:
                 job.score = 50
                 job.rating = "No AI"
-    else:
+    elif not ai_enabled:
         for job in all_jobs:
             job.score = 50
             job.rating = "Skipped"
 
+    if use_nvidia and nvidia_intent is not None:
+        candidate_limit = nvidia_client.max_candidates
+        candidates = sorted(all_jobs, key=lambda item: relevance_score(query, item), reverse=True)[:candidate_limit]
+        analyses = nvidia_client.analyze_jobs(query, nvidia_intent, candidates)
+        filtered_jobs: List[Job] = []
+        for job in all_jobs:
+            identity = nvidia_client.job_identity(job)
+            analysis = analyses.get(identity)
+            if analysis is None:
+                # A failed model call falls back to deterministic relevance.
+                filtered_jobs.append(job)
+                continue
+            job.source_metadata = {
+                **(job.source_metadata or {}),
+                "nvidia_relevance": analysis.relevance_score,
+                "nvidia_role_match": analysis.role_match,
+                "nvidia_skill_match": analysis.skill_match,
+                "nvidia_technology_match": analysis.technology_match,
+                "nvidia_seniority_match": analysis.seniority_match,
+                "nvidia_matched_requirements": analysis.matched_requirements,
+                "nvidia_missing_requirements": analysis.missing_requirements,
+                "nvidia_reasons": analysis.reasons,
+            }
+            if not analysis.hard_mismatch and analysis.relevant and analysis.relevance_score >= 60:
+                filtered_jobs.append(job)
+        all_jobs = filtered_jobs
+        ranked = nvidia_client.rank_jobs(query, nvidia_intent, all_jobs, analyses)
+        for job in all_jobs:
+            ranking = ranked.get(nvidia_client.job_identity(job))
+            if ranking:
+                job.source_metadata["nvidia_final_score"] = ranking["final_score"]
+                job.source_metadata["nvidia_ranking_reason"] = ranking["reason"]
+    elif semantic is not None and intent is not None:
+        candidate_limit = max(1, int(os.environ.get("LLM_CANDIDATE_LIMIT", "30")))
+        candidates = sorted(
+            all_jobs,
+            key=lambda item: relevance_score(query, item),
+            reverse=True,
+        )[:candidate_limit]
+        semantic_results = semantic.evaluate_jobs(query, intent, candidates, limit=candidate_limit)
+        filtered_jobs: List[Job] = []
+        for job in all_jobs:
+            deterministic = relevance_score(query, job)
+            job.source_metadata = {
+                **(job.source_metadata or {}),
+                "deterministic_relevance": deterministic,
+            }
+            result = semantic_results.get(semantic.job_key(query, job)[1])
+            if result is not None:
+                job.source_metadata.update({
+                    "llm_relevance": result.score,
+                    "llm_relevance_reason": result.reason,
+                    "llm_matched_skills": result.matched_skills,
+                    "llm_missing_skills": result.missing_skills,
+                    "llm_confidence": result.confidence,
+                })
+                strong_deterministic = deterministic >= 85
+                if not ((result.relevant and result.score >= 70) or (strong_deterministic and result.score >= 50)):
+                    continue
+            filtered_jobs.append(job)
+        all_jobs = filtered_jobs
+
+    for job in all_jobs:
+        metadata = job.source_metadata or {}
+        if not ai_enabled:
+            job.score = 0
+            job.rating = "AI disabled"
+            continue
+        freshness = int(metadata.get("freshness_score", 25))
+        deterministic = int(metadata.get("deterministic_relevance", relevance_score(query, job)))
+        nvidia_score = metadata.get("nvidia_final_score", metadata.get("nvidia_relevance"))
+        if nvidia_score is not None:
+            application_quality = 100 if metadata.get("application_link_state") == "verified_active" else 60
+            job.score = round(
+                float(nvidia_score) * 0.40
+                + deterministic * 0.25
+                + freshness * 0.20
+                + application_quality * 0.10
+                + job.score * 0.05
+            )
+            job.reasoning = metadata.get("nvidia_ranking_reason") or "; ".join(metadata.get("nvidia_reasons", []))
+            job.rating = "NVIDIA AI"
+            continue
+        llm_score = metadata.get("llm_relevance")
+        if llm_score is not None:
+            application_quality = 100 if metadata.get("application_link_state") == "verified_active" else 60
+            job.score = round(
+                float(llm_score) * 0.40
+                + deterministic * 0.25
+                + freshness * 0.20
+                + application_quality * 0.10
+                + job.score * 0.05
+            )
+        else:
+            job.score = round((job.score * 0.8) + (freshness * 0.2))
     all_jobs.sort(key=lambda job: job.score, reverse=True)
 
     if show_output:

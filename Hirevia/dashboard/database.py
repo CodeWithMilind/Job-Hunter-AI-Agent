@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from hirevia.eligibility import INDIA_ELIGIBLE, UNKNOWN, classify_india_eligibility
+from hirevia.quality import normalize_url
 
 DB_PATH = os.environ.get("hirevia_DB", os.path.join(os.path.dirname(__file__), "hirevia_dashboard.db"))
 
@@ -150,10 +151,18 @@ def upsert_job(job_dict: Dict[str, Any]) -> Dict[str, Any]:
         description=job_dict.get("description", ""), remote=job_dict.get("remote", False),
     )
     with get_db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM jobs WHERE title=? AND company=? AND source=?",
-            (job_dict["title"], job_dict["company"], job_dict.get("source", "")),
-        ).fetchone()
+        existing = None
+        candidate_url = normalize_url(job_dict.get("url", ""))
+        if candidate_url:
+            for row in conn.execute("SELECT id, url, original_url FROM jobs WHERE url != '' OR original_url != ''"):
+                if candidate_url in {normalize_url(row["url"]), normalize_url(row["original_url"])}:
+                    existing = row
+                    break
+        if existing is None:
+            existing = conn.execute(
+                "SELECT id FROM jobs WHERE title=? AND company=? AND source=?",
+                (job_dict["title"], job_dict["company"], job_dict.get("source", "")),
+            ).fetchone()
 
         if existing:
             conn.execute("""

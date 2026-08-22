@@ -126,6 +126,7 @@ class ArbeitnowSearch:
                         description=desc,
                         salary=salary,
                         source=ArbeitnowSearch.SOURCE,
+                        source_metadata={"source_job_id": str(item.get("slug") or item.get("id"))} if (item.get("slug") or item.get("id")) else {},
                         remote=item.get("remote", False),
                         tags=tags,
                         posted=item.get("created_at", ""),

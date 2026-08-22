@@ -46,6 +46,7 @@ class RemotiveSearch:
                     description=(item.get("description") or "")[:500],
                     salary=salary,
                     source=RemotiveSearch.SOURCE,
+                    source_metadata={"source_job_id": str(item.get("id"))} if item.get("id") else {},
                     remote=True,
                     country=item.get("country", ""),
                     timezone=item.get("timezone", ""),

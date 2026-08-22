@@ -120,16 +120,15 @@ class TestTelegramFieldExtraction:
 class TestTelegramSourceIntegration:
     """Test integration with SourceRegistry."""
 
-    def test_telegram_disabled_by_default(self):
-        """Telegram should be disabled in default config."""
+    def test_telegram_enabled_by_config(self):
+        """Telegram follows the checked-in source configuration."""
         registry = SourceRegistry.from_yaml("sources.yaml")
         telegram_source = next(
             (s for s in registry.enabled_sources()),
             None
         )
-        # Should return None or not have telegram enabled
         enabled_ids = {s.source_id for s in registry.enabled_sources()}
-        assert "telegram" not in enabled_ids
+        assert "telegram" in enabled_ids
 
     def test_telegram_in_registry(self):
         """Telegram should be accessible through registry."""
@@ -144,11 +143,11 @@ class TestTelegramSourceIntegration:
             # If not in registry at all, check if it should be
             pytest.skip("Telegram not in registry (may be expected)")
 
-    def test_telegram_not_in_enabled_sources_by_default(self):
-        """Telegram should not be in enabled sources by default."""
+    def test_telegram_is_in_enabled_sources_when_configured(self):
+        """Configured Telegram participates in the unified registry."""
         registry = SourceRegistry.from_yaml("sources.yaml")
         enabled_ids = {s.source_id for s in registry.enabled_sources()}
-        assert "telegram" not in enabled_ids
+        assert "telegram" in enabled_ids
 
 
 class TestTelegramErrorHandling:

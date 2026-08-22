@@ -23,6 +23,7 @@ for entry in (_project_root, _dashboard_dir):
         sys.path.insert(0, entry)
 
 import database as db
+from hirevia.quality import LinkState, freshness_score, is_expired, is_relevant, verify_application_link
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hirevia-dashboard")
@@ -179,7 +180,21 @@ def fetch_telegram_jobs(request: TelegramFetchRequest):
         from hirevia.sources.telegram import TelegramSearch
 
         source = TelegramSearch()
-        jobs = source.fetch(request.query.strip(), limit=request.limit)
+        fetched_jobs = source.fetch(request.query.strip(), limit=request.limit)
+        jobs = []
+        for job in fetched_jobs:
+            if is_expired(job) or not is_relevant(request.query.strip(), job):
+                continue
+            job.source_metadata = {
+                **(job.source_metadata or {}),
+                "freshness_score": freshness_score(job),
+            }
+            if job.url and "t.me/" not in job.url and "telegram.me/" not in job.url:
+                state = verify_application_link(job.url, timeout=2, retries=0)
+                job.source_metadata["application_link_state"] = state.value
+                if state == LinkState.VERIFIED_UNAVAILABLE:
+                    continue
+            jobs.append(job)
         existing = db.get_jobs(source="Telegram", limit=10000)
         existing_ids = {_telegram_identity(job) for job in existing if _telegram_identity(job)}
         new_count = 0
@@ -198,7 +213,7 @@ def fetch_telegram_jobs(request: TelegramFetchRequest):
             "success": True,
             "status": "completed",
             "message": f"Fetched {new_count} new jobs. {duplicate_count} duplicates skipped." if new_count or duplicate_count else "No new Telegram jobs found.",
-            "fetched": len(jobs),
+            "fetched": len(fetched_jobs),
             "new_jobs": new_count,
             "duplicates": duplicate_count,
         }

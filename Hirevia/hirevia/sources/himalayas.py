@@ -70,6 +70,7 @@ class HimalayasSearch:
                         description=(item.get("description") or item.get("excerpt") or "")[:500],
                         salary=salary,
                         source=HimalayasSearch.SOURCE,
+                        source_metadata={"source_job_id": str(item.get("id") or item.get("guid"))} if (item.get("id") or item.get("guid")) else {},
                         remote=True,  # Himalayas is a remote job board
                         location_restrictions=locs,
                         country=item.get("country", ""),

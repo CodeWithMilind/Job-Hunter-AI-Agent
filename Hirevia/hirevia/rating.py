@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 LLM_URL = os.environ.get("LLM_URL", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "")
+LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "20"))
 
 # Common LLM server ports — detection tries these in order
 _DEFAULT_PORTS = [
@@ -92,8 +93,6 @@ class AIRater:
                 r = requests.get(f"{url}/api/tags", timeout=2)
                 if r.status_code == 200:
                     self.base_url = url
-                    # Quick speed test with smallest model
-                    self._warn_if_slow(url)
                     return "ollama"
             except Exception:
                 pass
@@ -130,6 +129,9 @@ class AIRater:
                     "messages": [{"role": "user", "content": "Say hi"}],
                     "stream": False,
                     "think": False,
+                    "format": "json",
+                    "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 8},
+                    "keep_alive": "10m",
                 },
                 timeout=15,
             )
@@ -194,8 +196,11 @@ class AIRater:
                     ],
                     "stream": False,
                     "think": False,
+                    "format": "json",
+                    "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 384},
+                    "keep_alive": "10m",
                 },
-                timeout=60,
+                timeout=LLM_TIMEOUT_SECONDS,
             )
             resp.raise_for_status()
             msg = resp.json()["message"]
@@ -210,7 +215,7 @@ class AIRater:
         except requests.exceptions.Timeout:
             job.score = 50
             job.rating = "Timeout"
-            job.reasoning = "LLM timed out after 60s"
+            job.reasoning = f"LLM timed out after {LLM_TIMEOUT_SECONDS:g}s"
             logger.warning("Timeout rating %s @ %s", job.title, job.company)
         except requests.exceptions.ConnectionError:
             job.score = 50
