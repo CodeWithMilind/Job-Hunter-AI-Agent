@@ -4,6 +4,22 @@ Hirevia is a single, shared job-search pipeline that runs the same search flow f
 
 The project reuses the existing `Job` model, `SourceRegistry`, built-in sources, cache, database, and AI scoring so there is one authoritative search path instead of two separate implementations.
 
+## Autonomous monitoring workflow
+
+The dashboard is designed for a resume-first workflow:
+
+```text
+Upload up to 5 resumes
+-> Hirevia builds candidate profiles and a controlled search strategy
+-> Start Monitoring
+-> Every 5 minutes, searchable sources, Telegram feeds, and configured ATS pages are checked
+-> Jobs are normalized, deduplicated, filtered, and matched against the resumes
+-> NVIDIA semantic matching is used when configured, followed by P0/P1/P2 prioritization
+-> Matches appear in the dashboard and important P0/P1 opportunities can be sent to Telegram
+```
+
+No manual keywords, roles, locations, or search queries are required for monitoring. Resumes can be replaced or removed, and a sixth upload is rejected.
+
 ## Phase 1 quality gates
 
 The shared pipeline now keeps fewer, fresher, more relevant opportunities:
@@ -40,7 +56,7 @@ The optional NVIDIA path uses one reusable OpenAI-compatible client with three c
 
 Configure these with `NVIDIA_API_KEY` and `NVIDIA_BASE_URL` in the ignored `.env` file. `LLM_MAX_CANDIDATES` limits job-analysis and ranking candidates. No AI mode makes zero NVIDIA or local-LLM calls. Any model timeout, API failure, invalid JSON, or unavailable model falls back to deterministic filtering and ranking; prompts never contain credentials or internal IDs.
 
-Telegram is optional but enabled in the checked-in configuration; missing Telethon, credentials, or an authorized session are handled without breaking other sources.
+Telegram ingestion is enabled in the checked-in configuration; missing Telethon, credentials, or an authorized session are handled without breaking other sources. Bot delivery is optional and uses `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` when configured.
 
 ## Unified architecture
 
@@ -151,7 +167,7 @@ sources:
   telegram: { enabled: false }
 ```
 
-Telegram remains fully optional and disabled by default. Normal searches never initialize the Telegram client or require environment variables for it.
+Telegram remains optional for normal searches. Monitoring uses it when enabled and configured; normal searches never require Telegram credentials.
 
 ## Telegram configuration
 
@@ -163,7 +179,7 @@ Telegram is fully optional and integrated into the unified pipeline as just anot
 - Telegram uses the optional Telethon library when it is available
 - Telegram requires API credentials (API_ID, API_HASH)
 - Telegram requires a persistent session after first authentication
-- Default configuration has Telegram disabled to avoid auth prompts
+- The checked-in configuration has Telegram enabled; missing credentials still skip it safely
 
 ### Setting up Telegram (optional)
 

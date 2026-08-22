@@ -8,3 +8,38 @@ channels:
     username: "@fresheroffcampus"
     enabled: true
     limit: 20
+
+  - name: "Fresherjobsadda"
+    username: "@Fresherjobsadda"
+    enabled: true
+    limit: 20
+
+  - name: "job4fresherss"
+    username: "@job4fresherss"
+    enabled: true
+    limit: 20
+
+  - name: "offcampusjobs4u"
+    username: "@offcampusjobs4u"
+    enabled: true
+    limit: 20
+
+  - name: "jobsinternshipswale"
+    username: "@jobsinternshipswale"
+    enabled: true
+    limit: 20
+
+  - name: "getjobss"
+    username: "@getjobss"
+    enabled: true
+    limit: 20
+
+  - name: "jobs_SQL"
+    username: "@jobs_SQL"
+    enabled: true
+    limit: 20
+
+  - name: "FreshersJobsUpdates"
+    username: "@FreshersJobsUpdates"
+    enabled: true
+    limit: 20

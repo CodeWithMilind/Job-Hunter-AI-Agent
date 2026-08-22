@@ -324,20 +324,9 @@ class TelegramSearch(JobSource):
 
                         job = self._parse(message, channel_name, username)
 
-                        query_terms = [term for term in query.lower().split() if term]
-                        location_match = not location or location.lower() in (
-                            job.location.lower() if job else ""
-                        )
-                        query_match = not query_terms or (
-                            job is not None
-                            and all(
-                                term in (
-                                    f"{job.title} {job.company} {job.description}"
-                                ).lower()
-                                for term in query_terms
-                            )
-                        )
-                        if job and query_match and location_match:
+                        # Telegram is a feed source: resume-derived search terms
+                        # and searchable-source locations must not hide new posts.
+                        if job:
                             jobs.append(job)
                     state[username] = newest_id
                 except Exception as exc:

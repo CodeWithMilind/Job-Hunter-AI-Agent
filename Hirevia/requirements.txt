@@ -2,5 +2,6 @@ rich>=13.0
 pyyaml>=6.0
 requests>=2.31
 beautifulsoup4>=4.12
+pypdf>=4.0
 pytest>=7.0
 responses>=0.23

@@ -4,11 +4,12 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +25,7 @@ for entry in (_project_root, _dashboard_dir):
 
 import database as db
 from hirevia.quality import LinkState, freshness_score, is_expired, is_relevant, verify_application_link
+from hirevia.resume import MAX_RESUMES, ResumeManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hirevia-dashboard")
@@ -61,6 +63,199 @@ class ConfigBulkUpdate(BaseModel):
 class TelegramFetchRequest(BaseModel):
     query: str = ""
     limit: int = 50
+
+
+class ResumeReplaceRequest(BaseModel):
+    filename: str
+    content: str
+
+
+resume_manager = ResumeManager(_project_root)
+_monitor_state = {
+    "active": False,
+    "last_scan": None,
+    "next_scan": None,
+    "jobs_scanned": 0,
+    "jobs_matched": 0,
+    "important_jobs": 0,
+    "error": "",
+}
+_monitor_stop = threading.Event()
+_monitor_thread: Optional[threading.Thread] = None
+
+
+def _priority(score: int) -> str:
+    if score >= 85:
+        return "P0"
+    if score >= 65:
+        return "P1"
+    return "P2"
+
+
+def _resume_profile():
+    from hirevia.models import Profile
+    profile_path = os.path.join(_project_root, "profile.yaml")
+    return Profile.from_yaml(profile_path) if os.path.exists(profile_path) else Profile(name="Job Seeker")
+
+
+def _save_jobs(jobs: list[Any]) -> None:
+    for job in jobs:
+        payload = {
+            "title": job.title, "company": job.company, "location": job.location,
+            "url": job.url, "description": job.description, "salary": job.salary,
+            "source": job.source, "source_type": job.source_type,
+            "original_url": job.original_url, "source_metadata": job.source_metadata,
+            "remote": job.remote, "country": job.country,
+            "location_restrictions": job.location_restrictions, "timezone": job.timezone,
+            "india_eligibility": job.india_eligibility, "tags": job.tags,
+            "posted": job.posted, "score": job.score, "rating": job.rating,
+            "reasoning": job.reasoning, "skills_match": job.skills_match,
+            "experience_fit": job.experience_fit, "salary_fit": job.salary_fit,
+            "remote_fit": job.remote_fit,
+        }
+        db.upsert_job(payload)
+
+
+def _notify_telegram(jobs: list[Any]) -> int:
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return 0
+    state_path = Path(_project_root) / "telegram_delivery.json"
+    try:
+        sent = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else []
+    except (OSError, ValueError):
+        sent = []
+    sent_ids = set(sent)
+    important = [job for job in jobs if job.score >= 65]
+    delivered = 0
+    import requests
+    for job in important:
+        identity = (job.url or f"{job.company}|{job.title}|{job.location}").lower().strip()
+        if identity in sent_ids:
+            continue
+        text = (
+            f"{'🔥' if job.score >= 85 else '🟢'} {'HIGH PRIORITY' if job.score >= 85 else 'GOOD MATCH'}\n\n"
+            f"{job.title}\n{job.company}\n\n📍 {job.location}\n"
+            f"{job.score}% match\n\nApply: {job.url or 'Open Hirevia'}"
+        )
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": text}, timeout=10,
+            )
+            response.raise_for_status()
+            sent_ids.add(identity)
+            delivered += 1
+        except requests.RequestException as exc:
+            logger.warning("Telegram notification failed: %s", exc)
+    state_path.write_text(json.dumps(sorted(sent_ids)), encoding="utf-8")
+    return delivered
+
+
+def _monitor_scan() -> None:
+    from hirevia.pipeline import search_jobs as run_pipeline
+    profiles = resume_manager.list()
+    if not profiles:
+        raise RuntimeError("Upload at least one resume before monitoring")
+    strategy = resume_manager.strategy()
+    query = " OR ".join(strategy["primary_roles"][:10])
+    jobs = run_pipeline(
+        query=query, location="India", profile=_resume_profile(), ai_enabled=True,
+        limit=100, companies_path=os.path.join(_project_root, "companies.yaml"),
+        sources_path=os.path.join(_project_root, "sources.yaml"), no_cache=False,
+        show_output=False,
+    )
+    _save_jobs(jobs)
+    telegram_sent = _notify_telegram(jobs)
+    _monitor_state.update({
+        "last_scan": time.time(), "next_scan": time.time() + 300,
+        "jobs_scanned": _monitor_state["jobs_scanned"] + len(jobs),
+        "jobs_matched": _monitor_state["jobs_matched"] + len(jobs),
+        "important_jobs": _monitor_state["important_jobs"] + sum(job.score >= 65 for job in jobs),
+        "telegram_sent": _monitor_state.get("telegram_sent", 0) + telegram_sent,
+        "error": "",
+    })
+    db.log_activity("success", f"Monitoring scan completed: {len(jobs)} matched jobs")
+
+
+def _monitor_loop() -> None:
+    while not _monitor_stop.is_set():
+        try:
+            _monitor_scan()
+        except Exception as exc:
+            _monitor_state["error"] = str(exc)
+            _monitor_state["last_scan"] = time.time()
+            _monitor_state["next_scan"] = time.time() + 300
+            db.log_activity("error", f"Monitoring scan failed: {exc}")
+        _monitor_stop.wait(300)
+    _monitor_state["active"] = False
+
+
+@app.get("/api/resumes")
+def list_resumes():
+    return {"resumes": resume_manager.list(), "count": len(resume_manager.list()), "max": MAX_RESUMES}
+
+
+@app.post("/api/resumes")
+async def upload_resume(file: UploadFile = File(...)):
+    try:
+        item = resume_manager.add(file.filename or "resume.txt", await file.read())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return item
+
+
+@app.put("/api/resumes/{resume_id}")
+async def replace_resume(resume_id: str, file: UploadFile = File(...)):
+    if not any(item["id"] == resume_id for item in resume_manager.list()):
+        raise HTTPException(status_code=404, detail="Resume not found")
+    resume_manager.remove(resume_id)
+    try:
+        return resume_manager.add(file.filename or "resume.txt", await file.read())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.delete("/api/resumes/{resume_id}")
+def remove_resume(resume_id: str):
+    if not resume_manager.remove(resume_id):
+        raise HTTPException(status_code=404, detail="Resume not found")
+    return {"ok": True}
+
+
+@app.get("/api/search-strategy")
+def get_search_strategy():
+    return resume_manager.strategy()
+
+
+@app.get("/api/monitoring")
+def monitoring_status():
+    return {**_monitor_state, "resume_count": len(resume_manager.list()), "interval_seconds": 300}
+
+
+@app.post("/api/monitoring/start")
+def start_monitoring():
+    global _monitor_thread
+    if _monitor_state["active"]:
+        return monitoring_status()
+    if not resume_manager.list():
+        raise HTTPException(status_code=409, detail="Upload at least one resume before monitoring")
+    _monitor_stop.clear()
+    _monitor_state.update({"active": True, "error": "", "next_scan": time.time()})
+    _monitor_thread = threading.Thread(target=_monitor_loop, name="hirevia-monitor", daemon=True)
+    _monitor_thread.start()
+    db.log_activity("info", "Monitoring started")
+    return monitoring_status()
+
+
+@app.post("/api/monitoring/stop")
+def stop_monitoring():
+    _monitor_stop.set()
+    _monitor_state["active"] = False
+    _monitor_state["next_scan"] = None
+    db.log_activity("info", "Monitoring stopped")
+    return monitoring_status()
 
 # ─── API Routes ────────────────────────────────────────────────────────────
 
