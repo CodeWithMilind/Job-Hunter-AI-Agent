@@ -6,19 +6,17 @@ The project reuses the existing `Job` model, `SourceRegistry`, built-in sources,
 
 ## Autonomous monitoring workflow
 
-The dashboard is designed for a resume-first workflow:
+The dashboard is a small monitoring and debugging interface:
 
 ```text
-Upload up to 5 resumes
--> Hirevia builds candidate profiles and a controlled search strategy
+Edit `profile.yaml` once with target roles, keywords, locations, exclusions, and scan settings
 -> Start Monitoring
--> Every 5 minutes, searchable sources, Telegram feeds, and configured ATS pages are checked
--> Jobs are normalized, deduplicated, filtered, and matched against the resumes
--> NVIDIA semantic matching is used when configured, followed by P0/P1/P2 prioritization
--> Matches appear in the dashboard and important P0/P1 opportunities can be sent to Telegram
+-> Every 15 seconds, all enabled sources and configured Telegram feeds are checked
+-> Jobs are normalized, filtered, deduplicated, scored, saved, and sent to Telegram
+-> Valid matches appear in the dashboard
 ```
 
-No manual keywords, roles, locations, or search queries are required for monitoring. Resumes can be replaced or removed, and a sixth upload is rejected.
+No resume upload, extraction, or candidate JSON is required. `profile.yaml` is the only user preference configuration.
 
 ## Phase 1 quality gates
 

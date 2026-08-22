@@ -15,12 +15,12 @@ env/
 # Hirevia results and state
 results.json
 results.csv
-*.json
 !profile.yaml
 !package.json
 !package-lock.json
+*.session
 telegram_state.json
-job_hunter_session.session
+runtime_state.json
 
 # Downloaded binaries and models
 bin/
@@ -36,4 +36,5 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
-dashboard/hirevia_dashboard.db
+*.db
+*.pyo

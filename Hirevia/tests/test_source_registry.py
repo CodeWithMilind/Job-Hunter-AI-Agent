@@ -65,6 +65,14 @@ def test_source_metadata_is_attached_to_collected_jobs():
     assert job.source_metadata == {"kind": "test"}
 
 
+def test_source_last_error_is_exposed_by_safe_fetch():
+    source = _TestSource()
+    source.last_error = "temporary outage"
+    result = source.fetch_safely("python")
+    assert result.jobs == []
+    assert result.error == "temporary outage"
+
+
 def test_custom_source_registration_is_supported():
     registry = SourceRegistry({"sources": {}})
     registry.register(_TestSource(source_id="custom_feed", name="Custom Feed"))

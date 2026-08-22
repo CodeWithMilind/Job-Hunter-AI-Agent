@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,7 +25,6 @@ for entry in (_project_root, _dashboard_dir):
 
 import database as db
 from hirevia.quality import LinkState, freshness_score, is_expired, is_relevant, verify_application_link
-from hirevia.resume import MAX_RESUMES, ResumeManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hirevia-dashboard")
@@ -53,6 +52,7 @@ class SearchRequest(BaseModel):
     no_ai: bool = False
     no_cache: bool = True
 
+
 class ConfigUpdate(BaseModel):
     key: str
     value: str
@@ -65,12 +65,6 @@ class TelegramFetchRequest(BaseModel):
     limit: int = 50
 
 
-class ResumeReplaceRequest(BaseModel):
-    filename: str
-    content: str
-
-
-resume_manager = ResumeManager(_project_root)
 _monitor_state = {
     "active": False,
     "last_scan": None,
@@ -78,21 +72,16 @@ _monitor_state = {
     "jobs_scanned": 0,
     "jobs_matched": 0,
     "important_jobs": 0,
+    "scan_stats": {},
     "error": "",
 }
 _monitor_stop = threading.Event()
 _monitor_thread: Optional[threading.Thread] = None
+MONITOR_INTERVAL_SECONDS = 15
+_reset_generation = 0
 
 
-def _priority(score: int) -> str:
-    if score >= 85:
-        return "P0"
-    if score >= 65:
-        return "P1"
-    return "P2"
-
-
-def _resume_profile():
+def _profile():
     from hirevia.models import Profile
     profile_path = os.path.join(_project_root, "profile.yaml")
     return Profile.from_yaml(profile_path) if os.path.exists(profile_path) else Profile(name="Job Seeker")
@@ -127,17 +116,21 @@ def _notify_telegram(jobs: list[Any]) -> int:
     except (OSError, ValueError):
         sent = []
     sent_ids = set(sent)
-    important = [job for job in jobs if job.score >= 65]
+    important = [job for job in jobs if job.score >= 0]
     delivered = 0
     import requests
     for job in important:
         identity = (job.url or f"{job.company}|{job.title}|{job.location}").lower().strip()
         if identity in sent_ids:
             continue
+        metadata = job.source_metadata or {}
+        experience = metadata.get("experience") or metadata.get("experience_years") or "Entry level / not specified"
+        skills = metadata.get("skills") or ", ".join(job.tags) or "Not specified"
         text = (
-            f"{'🔥' if job.score >= 85 else '🟢'} {'HIGH PRIORITY' if job.score >= 85 else 'GOOD MATCH'}\n\n"
+            "🔔 NEW JOB\n\n"
             f"{job.title}\n{job.company}\n\n📍 {job.location}\n"
-            f"{job.score}% match\n\nApply: {job.url or 'Open Hirevia'}"
+            f"Experience: {experience}\nMatch: {job.score}%\nDetected: {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}\n"
+            f"Key skills: {skills}\n\nApply: {job.url or 'Open Hirevia'}"
         )
         try:
             response = requests.post(
@@ -154,27 +147,35 @@ def _notify_telegram(jobs: list[Any]) -> int:
 
 
 def _monitor_scan() -> None:
+    generation = _reset_generation
     from hirevia.pipeline import search_jobs as run_pipeline
-    profiles = resume_manager.list()
-    if not profiles:
-        raise RuntimeError("Upload at least one resume before monitoring")
-    strategy = resume_manager.strategy()
-    query = " OR ".join(strategy["primary_roles"][:10])
+    profile = _profile()
+    query = " OR ".join(profile.target_roles or profile.desired_roles or ["Software Engineer"])
+    scan_stats: Dict[str, Any] = {}
     jobs = run_pipeline(
-        query=query, location="India", profile=_resume_profile(), ai_enabled=True,
-        limit=100, companies_path=os.path.join(_project_root, "companies.yaml"),
+        query=query, location="India", profile=profile, ai_enabled=False,
+        limit=int(profile.settings.get("max_results", 200)), companies_path=os.path.join(_project_root, "companies.yaml"),
         sources_path=os.path.join(_project_root, "sources.yaml"), no_cache=False,
-        show_output=False,
+        show_output=False, scan_stats=scan_stats,
+        source_ids=profile.sources or None,
     )
+    if generation != _reset_generation:
+        return
     _save_jobs(jobs)
+    for source_id, source in scan_stats.get("sources", {}).items():
+        db.record_source_status(
+            {"id": source_id, "name": source["name"], "type": source["type"], "enabled": True},
+            jobs_collected=source["jobs"], error=source["error"],
+        )
     telegram_sent = _notify_telegram(jobs)
     _monitor_state.update({
-        "last_scan": time.time(), "next_scan": time.time() + 300,
-        "jobs_scanned": _monitor_state["jobs_scanned"] + len(jobs),
+        "last_scan": time.time(), "next_scan": time.time() + MONITOR_INTERVAL_SECONDS,
+        "jobs_scanned": _monitor_state["jobs_scanned"] + scan_stats.get("raw_jobs", 0),
         "jobs_matched": _monitor_state["jobs_matched"] + len(jobs),
         "important_jobs": _monitor_state["important_jobs"] + sum(job.score >= 65 for job in jobs),
         "telegram_sent": _monitor_state.get("telegram_sent", 0) + telegram_sent,
         "error": "",
+        "scan_stats": scan_stats,
     })
     db.log_activity("success", f"Monitoring scan completed: {len(jobs)} matched jobs")
 
@@ -186,52 +187,43 @@ def _monitor_loop() -> None:
         except Exception as exc:
             _monitor_state["error"] = str(exc)
             _monitor_state["last_scan"] = time.time()
-            _monitor_state["next_scan"] = time.time() + 300
+            _monitor_state["next_scan"] = time.time() + MONITOR_INTERVAL_SECONDS
             db.log_activity("error", f"Monitoring scan failed: {exc}")
-        _monitor_stop.wait(300)
+        _monitor_stop.wait(MONITOR_INTERVAL_SECONDS)
     _monitor_state["active"] = False
-
-
-@app.get("/api/resumes")
-def list_resumes():
-    return {"resumes": resume_manager.list(), "count": len(resume_manager.list()), "max": MAX_RESUMES}
-
-
-@app.post("/api/resumes")
-async def upload_resume(file: UploadFile = File(...)):
-    try:
-        item = resume_manager.add(file.filename or "resume.txt", await file.read())
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    return item
-
-
-@app.put("/api/resumes/{resume_id}")
-async def replace_resume(resume_id: str, file: UploadFile = File(...)):
-    if not any(item["id"] == resume_id for item in resume_manager.list()):
-        raise HTTPException(status_code=404, detail="Resume not found")
-    resume_manager.remove(resume_id)
-    try:
-        return resume_manager.add(file.filename or "resume.txt", await file.read())
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-
-
-@app.delete("/api/resumes/{resume_id}")
-def remove_resume(resume_id: str):
-    if not resume_manager.remove(resume_id):
-        raise HTTPException(status_code=404, detail="Resume not found")
-    return {"ok": True}
 
 
 @app.get("/api/search-strategy")
 def get_search_strategy():
-    return resume_manager.strategy()
+    profile = _profile()
+    return {"primary_roles": profile.target_roles or profile.desired_roles, "skills": profile.keywords or profile.skills, "locations": profile.locations, "experience_terms": profile.experience}
 
 
 @app.get("/api/monitoring")
 def monitoring_status():
-    return {**_monitor_state, "resume_count": len(resume_manager.list()), "interval_seconds": 300}
+    return {**_monitor_state, "interval_seconds": MONITOR_INTERVAL_SECONDS}
+
+
+@app.get("/api/telegram/status")
+def telegram_status():
+    """Report whether the configured reusable Telegram session is available."""
+    from hirevia.sources.telegram import TelegramClient, TelegramSearch
+
+    config_path = Path(_project_root) / "sources.yaml"
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        configured = bool(config.get("sources", {}).get("telegram", {}).get("enabled", False))
+    except (OSError, TypeError, AttributeError, yaml.YAMLError):
+        configured = False
+    session_exists = Path(TelegramSearch._get_session_file() + ".session").exists()
+    credentials = bool(os.getenv("TELEGRAM_API_ID") and os.getenv("TELEGRAM_API_HASH"))
+    connected = bool(configured and TelegramClient is not None and credentials and session_exists)
+    return {
+        "status": "Connected" if connected else "Disconnected",
+        "connected": connected,
+        "configured": configured,
+        "session_available": session_exists,
+    }
 
 
 @app.post("/api/monitoring/start")
@@ -239,8 +231,6 @@ def start_monitoring():
     global _monitor_thread
     if _monitor_state["active"]:
         return monitoring_status()
-    if not resume_manager.list():
-        raise HTTPException(status_code=409, detail="Upload at least one resume before monitoring")
     _monitor_stop.clear()
     _monitor_state.update({"active": True, "error": "", "next_scan": time.time()})
     _monitor_thread = threading.Thread(target=_monitor_loop, name="hirevia-monitor", daemon=True)
@@ -372,24 +362,14 @@ def fetch_telegram_jobs(request: TelegramFetchRequest):
         return {"success": False, "status": "disabled", "message": "Telegram is disabled in sources.yaml.", "fetched": 0, "new_jobs": 0, "duplicates": 0}
 
     try:
-        from hirevia.sources.telegram import TelegramSearch
-
-        source = TelegramSearch()
-        fetched_jobs = source.fetch(request.query.strip(), limit=request.limit)
-        jobs = []
-        for job in fetched_jobs:
-            if is_expired(job) or not is_relevant(request.query.strip(), job):
-                continue
-            job.source_metadata = {
-                **(job.source_metadata or {}),
-                "freshness_score": freshness_score(job),
-            }
-            if job.url and "t.me/" not in job.url and "telegram.me/" not in job.url:
-                state = verify_application_link(job.url, timeout=2, retries=0)
-                job.source_metadata["application_link_state"] = state.value
-                if state == LinkState.VERIFIED_UNAVAILABLE:
-                    continue
-            jobs.append(job)
+        from hirevia.pipeline import search_jobs as run_pipeline
+        jobs = run_pipeline(
+            query=request.query.strip() or "technology intern", location="India",
+            profile=_profile(), ai_enabled=False, limit=request.limit,
+            sources_path=str(config_path), no_cache=True, show_output=False,
+            source_ids=["telegram"],
+        )
+        fetched_jobs = jobs
         existing = db.get_jobs(source="Telegram", limit=10000)
         existing_ids = {_telegram_identity(job) for job in existing if _telegram_identity(job)}
         new_count = 0
@@ -474,6 +454,29 @@ def get_sources():
             "last_error": previous.get(item["id"], {}).get("last_error", ""),
         }})
     return {"sources": sources}
+
+
+def _write_profile_yaml(content: str) -> None:
+    try:
+        parsed = yaml.safe_load(content)
+    except yaml.YAMLError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid profile.yaml: {exc}")
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=400, detail="profile.yaml must contain a YAML mapping")
+    required = {"target_roles", "keywords", "locations", "experience", "exclude_keywords", "settings"}
+    missing = sorted(required - set(parsed))
+    if missing:
+        raise HTTPException(status_code=400, detail=f"profile.yaml missing required keys: {', '.join(missing)}")
+    path = Path(_project_root) / "profile.yaml"
+    temporary = path.with_suffix(".yaml.tmp")
+    try:
+        temporary.write_text(content, encoding="utf-8")
+        from hirevia.models import Profile
+        Profile.from_yaml(str(temporary))
+        temporary.replace(path)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        temporary.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Invalid profile.yaml: {exc}")
 
 
 # ─── Search ────────────────────────────────────────────────────────────────
@@ -633,9 +636,11 @@ def reset_all_records():
     
     SAFE: This only deletes job records. Configuration, sources, profile, and settings remain intact.
     """
+    global _reset_generation
     from hirevia.cache import SeenJobsCache
-    
-    deleted_count = db.delete_all_jobs()
+
+    _reset_generation += 1
+    deleted_count = db.clear_runtime_data()
     
     # Clear seen-jobs cache so previously seen jobs can reappear
     try:
@@ -644,9 +649,18 @@ def reset_all_records():
         cache.close()
     except Exception as e:
         logger.warning(f"Could not clear seen-jobs cache: {e}")
-    
-    db.log_activity("warning", f"🗑️ Dashboard reset: {deleted_count} job records deleted, cache cleared")
-    return {"ok": True, "deleted_count": deleted_count, "message": "All job records deleted."}
+    delivery_state = Path(_project_root) / "telegram_delivery.json"
+    try:
+        delivery_state.unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning("Could not clear Telegram delivery state: %s", e)
+    _search_state.update({"running": False, "progress": 0, "total": 0, "message": ""})
+    _monitor_state.update({
+        "last_scan": None, "next_scan": time.time() if _monitor_state["active"] else None,
+        "jobs_scanned": 0, "jobs_matched": 0, "important_jobs": 0,
+        "error": "", "telegram_sent": 0, "scan_stats": {},
+    })
+    return {"ok": True, "deleted_count": deleted_count, "message": "All runtime job data deleted."}
 
 
 # ─── Config ────────────────────────────────────────────────────────────────
@@ -674,30 +688,29 @@ def get_config(key: Optional[str] = None):
 @app.put("/api/config")
 def update_config(update: ConfigBulkUpdate):
     for k, v in update.configs.items():
-        db.set_config(k, v)
-        # Also write profile/companies YAML files directly
         if k == "profile_yaml":
-            path = os.path.join(_project_root, "profile.yaml")
-            Path(path).write_text(v)
+            _write_profile_yaml(v)
             db.log_activity("info", "📝 Profile YAML updated")
         elif k == "companies_yaml":
             path = os.path.join(_project_root, "companies.yaml")
             Path(path).write_text(v)
             db.log_activity("info", "📝 Companies YAML updated")
+        else:
+            db.set_config(k, v)
     return {"ok": True}
 
 
 @app.put("/api/config/one")
 def update_config_one(update: ConfigUpdate):
-    db.set_config(update.key, update.value)
     if update.key == "profile_yaml":
-        path = os.path.join(_project_root, "profile.yaml")
-        Path(path).write_text(update.value)
+        _write_profile_yaml(update.value)
         db.log_activity("info", "📝 Profile YAML updated")
     elif update.key == "companies_yaml":
         path = os.path.join(_project_root, "companies.yaml")
         Path(path).write_text(update.value)
         db.log_activity("info", "📝 Companies YAML updated")
+    else:
+        db.set_config(update.key, update.value)
     return {"ok": True}
 
 

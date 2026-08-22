@@ -59,6 +59,14 @@ class Profile:
     location_preference: str = ""
     remote_ok: bool = True
     industries: List[str] = field(default_factory=list)
+    target_roles: List[str] = field(default_factory=list)
+    keywords: List[str] = field(default_factory=list)
+    locations: List[str] = field(default_factory=list)
+    experience: List[str] = field(default_factory=list)
+    exclude_keywords: List[str] = field(default_factory=list)
+    sources: List[str] = field(default_factory=list)
+    telegram: Dict[str, object] = field(default_factory=dict)
+    settings: Dict[str, object] = field(default_factory=dict)
 
     @classmethod
     def from_yaml(cls, path: str) -> "Profile":
@@ -75,6 +83,10 @@ class Profile:
             raise ValueError(f"Profile YAML must be a mapping, got {type(data).__name__}")
         known = set(cls.__dataclass_fields__.keys())
         filtered = {k: v for k, v in data.items() if k in known}
+        if not filtered.get("desired_roles") and data.get("target_roles"):
+            filtered["desired_roles"] = data["target_roles"]
+        if not filtered.get("skills") and data.get("keywords"):
+            filtered["skills"] = data["keywords"]
         unknown = set(data.keys()) - known
         if unknown:
             # Warn but don't fail — allow forward-compatible profiles

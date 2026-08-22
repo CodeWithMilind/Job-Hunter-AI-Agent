@@ -1,1 +1,77 @@
-{"name": "Hirevia Candidate", "title": "Software Engineer", "experience_years": 0, "skills": [], "desired_roles": ["Software Engineer", "Data Analyst"], "remote_ok": true}
+target_roles:
+  - Data Scientist
+  - Data Analyst
+  - Data Engineer
+  - Machine Learning Engineer
+  - AI Engineer
+  - Python Developer
+  - Software Engineer
+  - Backend Developer
+  - Software Developer
+  - SDE
+keywords:
+  - Python
+  - SQL
+  - Machine Learning
+  - Artificial Intelligence
+  - Data Science
+  - Pandas
+  - NumPy
+  - TensorFlow
+  - PyTorch
+  - Scikit-learn
+  - Django
+  - FastAPI
+  - AWS
+  - Docker
+locations:
+  - India
+  - Pune
+  - Mumbai
+  - Bangalore
+  - Bengaluru
+  - Hyderabad
+  - Chennai
+  - Delhi
+  - Noida
+  - Gurgaon
+  - Gurugram
+  - Ahmedabad
+  - Kolkata
+  - Jaipur
+  - Remote India
+experience:
+  - internship
+  - fresher
+  - entry level
+  - graduate
+  - trainee
+  - 0-2 years
+exclude_keywords:
+  - Senior
+  - Sr.
+  - Lead
+  - Principal
+  - Staff
+  - Architect
+  - Manager
+  - Director
+  - Head
+  - VP
+  - 3+ years
+  - 4+ years
+  - 5+ years
+sources:
+  - greenhouse
+  - ashby
+  - remotive
+  - arbeitnow
+  - remoteok
+  - jobicy
+  - himalayas
+  - telegram
+telegram:
+  enabled: true
+settings:
+  scan_interval_seconds: 15
+  max_results: 200

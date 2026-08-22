@@ -32,6 +32,8 @@ class TelegramSearch(JobSource):
 
     def __init__(self):
         self._channels = self._load_channels()
+        self.last_error = ""
+        self.last_scan_stats = {"channels_checked": 0, "messages_fetched": 0, "jobs_extracted": 0}
 
     @staticmethod
     def _get_config_dir() -> Path:
@@ -298,6 +300,8 @@ class TelegramSearch(JobSource):
         client = TelegramClient(self._get_session_file(), api_id, api_hash)
 
         jobs = []
+        channels_checked = 0
+        messages_fetched = 0
 
         await client.connect()
         if not await client.is_user_authorized():
@@ -309,6 +313,7 @@ class TelegramSearch(JobSource):
             for channel in self._channels:
                 if not channel.get("enabled", True):
                     continue
+                channels_checked += 1
 
                 username = channel["username"]
                 channel_name = channel.get("name", username)
@@ -319,7 +324,9 @@ class TelegramSearch(JobSource):
                     async for message in client.iter_messages(
                         username,
                         limit=channel.get("limit", limit),
+                        min_id=last_id,
                     ):
+                        messages_fetched += 1
                         newest_id = max(newest_id, message.id)
 
                         job = self._parse(message, channel_name, username)
@@ -336,6 +343,14 @@ class TelegramSearch(JobSource):
             await client.disconnect()
 
         self._save_state(state)
+        self.last_scan_stats = {
+            "channels_checked": channels_checked,
+            "messages_fetched": messages_fetched,
+            "jobs_extracted": len(jobs),
+        }
+        logger.info("[TELEGRAM] Channels checked: %d", channels_checked)
+        logger.info("[TELEGRAM] Messages fetched: %d", messages_fetched)
+        logger.info("[TELEGRAM] Jobs extracted: %d", len(jobs))
 
         return jobs
 
@@ -353,19 +368,23 @@ class TelegramSearch(JobSource):
         Returns an empty list if Telegram is not configured or unavailable,
         without raising an exception. This allows other sources to continue.
         """
+        self.last_error = ""
         if not self.enabled:
             return []
         
         if TelegramClient is None:
+            self.last_error = "Telethon is not installed"
             logger.warning("Telethon not installed; Telegram source skipped")
             return []
         
         if not self._channels:
+            self.last_error = "No Telegram channels configured"
             logger.warning("No Telegram channels configured (telegram.yaml)")
             return []
         
         try:
             if not os.getenv("TELEGRAM_API_ID") or not os.getenv("TELEGRAM_API_HASH"):
+                self.last_error = "TELEGRAM_API_ID/TELEGRAM_API_HASH not set"
                 logger.warning(
                     "TELEGRAM_API_ID/TELEGRAM_API_HASH not set; Telegram skipped"
                 )
@@ -373,5 +392,6 @@ class TelegramSearch(JobSource):
             
             return asyncio.run(self._fetch(query, location, limit))
         except Exception as e:
+            self.last_error = str(e)
             logger.warning(f"Telegram fetch failed: {e}")
             return []

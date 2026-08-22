@@ -19,6 +19,15 @@ from hirevia.sources.linkedin import is_linkedin_enabled
 # ──────────────────────────────────────────────────────────────────────────────
 
 class TestProfile:
+    def test_yaml_preferences_are_loaded(self, tmp_path):
+        p = tmp_path / "profile.yaml"
+        p.write_text("target_roles: [Data Analyst]\nkeywords: [Python]\nlocations: [India]\nexperience: [intern]\nexclude_keywords: [Senior]\nsources: [telegram]\ntelegram: {enabled: true}\nsettings: {scan_interval_seconds: 15}\n")
+        profile = Profile.from_yaml(str(p))
+        assert profile.target_roles == ["Data Analyst"]
+        assert profile.keywords == ["Python"]
+        assert profile.sources == ["telegram"]
+        assert profile.settings["scan_interval_seconds"] == 15
+
     def test_from_yaml_valid(self, tmp_path):
         data = {
             "name": "Test User",
@@ -440,9 +449,9 @@ class TestUnifiedPipeline:
             def fetch_safely(self, query, **kwargs):
                 return MagicMock(
                     jobs=[
-                        Job(title="Python Dev", company="Acme", location="Remote", url="https://example.com/a", source="", source_type="API"),
-                        Job(title="Python Dev", company="Acme", location="Remote", url="https://example.com/b", source="", source_type="API"),
-                        Job(title="Go Dev", company="Acme", location="Remote", url="https://example.com/c", source="", source_type="API"),
+                        Job(title="Python Developer Intern", company="Acme", location="India", url="https://example.com/a", source="", source_type="API", description="Python internship"),
+                        Job(title="Python Developer Intern", company="Acme", location="India", url="https://example.com/b", source="", source_type="API", description="Python internship"),
+                        Job(title="Go Developer Intern", company="Acme", location="India", url="https://example.com/c", source="", source_type="API", description="Go internship"),
                     ],
                     error="",
                 )
@@ -484,10 +493,34 @@ class TestUnifiedPipeline:
         monkeypatch.setattr("hirevia.pipeline.AIRater", FakeRater)
 
         jobs = search_jobs(query="python", ai_enabled=True, no_cache=True)
-        assert len(jobs) == 2
+        assert len(jobs) == 1
         titles = {job.title for job in jobs}
-        assert titles == {"Python Dev", "Go Dev"}
+        assert titles == {"Python Developer Intern"}
         assert all(job.score >= 0 for job in jobs)
+
+    def test_pipeline_reports_source_errors_and_scan_counts(self, monkeypatch):
+        from hirevia.pipeline import search_jobs
+
+        class Source:
+            source_id = "broken"
+            name = "Broken"
+            source_type = "API"
+            enabled = True
+
+            def fetch_safely(self, query, **kwargs):
+                from hirevia.sources.base import SourceFetchResult
+                return SourceFetchResult(source_id=self.source_id, error="upstream unavailable")
+
+        class Registry:
+            @staticmethod
+            def from_yaml(path): return Registry()
+            def enabled_sources(self, overrides=None): return [Source()]
+
+        monkeypatch.setattr("hirevia.pipeline.SourceRegistry", Registry)
+        stats = {}
+        assert search_jobs("Python", ai_enabled=False, no_cache=True, show_output=False, scan_stats=stats) == []
+        assert stats["raw_jobs"] == 0
+        assert stats["sources"]["broken"]["error"] == "upstream unavailable"
 
 
 class TestInteractiveMode:

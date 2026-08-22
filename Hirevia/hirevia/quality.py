@@ -152,6 +152,59 @@ _JOB_INTENT_TOKENS = {
     "devops", "cloud", "security", "product", "intern", "internship",
 }
 
+_FRESHER_POSITIVE = re.compile(r"\b(?:intern(?:ship)?|fresher|fresh graduate|new grad|graduate(?: trainee| engineer trainee)?|trainee|entry[- ]level|junior|associate|campus|off[- ]campus|[012](?:\s*[-–]\s*[012])?\s*years?)\b", re.IGNORECASE)
+_SENIOR_NEGATIVE = re.compile(r"\b(?:senior|sr\.?|lead|tech lead|principal|staff|architect|manager|senior manager|director|head|vp)\b|\b(?:[3-9]|10)\+?\s*years?\b", re.IGNORECASE)
+_TARGET_ROLE = re.compile(r"\b(?:ai(?:\s*/\s*ml)?|machine learning|data (?:scientist|science|analyst|engineer|engineering)|python|software|backend|full[- ]stack|sde|technology analyst)\b.*\b(?:engineer|developer|scientist|analyst|intern|trainee|associate)\b|\b(?:engineer|developer|scientist|analyst|intern|trainee|sde)\b.*\b(?:ai|ml|machine learning|data|python|software|backend|full[- ]stack|technology)\b", re.IGNORECASE)
+
+
+def is_fresher_eligible(job: Any) -> bool:
+    """Accept only internships and roles requiring approximately 0-2 years."""
+    metadata = _metadata(job)
+    text = " ".join(str(_value(job, key, "")) for key in ("title", "description", "posted"))
+    text += " " + " ".join(str(metadata.get(key, "")) for key in ("experience", "experience_years", "requirements", "seniority", "employment_type", "tags"))
+    if _SENIOR_NEGATIVE.search(text):
+        return False
+    return bool(_FRESHER_POSITIVE.search(text))
+
+
+def is_target_role(job: Any) -> bool:
+    """Keep technology roles relevant to an early-career technology profile."""
+    title = str(_value(job, "title", ""))
+    if _TARGET_ROLE.search(title):
+        return True
+    title_lower = title.lower()
+    text = " ".join(str(_value(job, key, "")) for key in ("title", "description", "tags")).lower()
+    return bool(re.search(r"\b(?:developer|engineer|scientist|analyst|intern|trainee)\b", title_lower) and re.search(r"\b(?:python|java|javascript|typescript|django|flask|fastapi|machine learning|artificial intelligence|data|software|backend|frontend|react|angular|vue|api|sql)\b", text))
+
+
+def profile_match_score(job: Any, profile: Any) -> int:
+    """Score deterministic role and keyword alignment from profile.yaml."""
+    title = str(_value(job, "title", "")).lower()
+    text = " ".join(str(_value(job, key, "")) for key in ("title", "description", "tags")).lower()
+    roles = getattr(profile, "target_roles", []) or getattr(profile, "desired_roles", [])
+    keywords = getattr(profile, "keywords", []) or getattr(profile, "skills", [])
+    role_hits = sum(1 for role in roles if any(token in title for token in _tokens(role)))
+    keyword_hits = sum(1 for keyword in keywords if str(keyword).lower() in text)
+    role_score = min(100, round(role_hits * 100 / max(1, min(3, len(roles)))))
+    keyword_score = min(100, round(keyword_hits * 100 / max(1, min(5, len(keywords)))))
+    return round(role_score * 0.65 + keyword_score * 0.35)
+
+
+def profile_matches(job: Any, profile: Any) -> bool:
+    """Apply the user's YAML role, keyword, and exclusion preferences."""
+    metadata = _metadata(job)
+    text = " ".join(str(_value(job, key, "")) for key in ("title", "description", "tags"))
+    text += " " + " ".join(str(metadata.get(key, "")) for key in ("experience", "requirements", "seniority"))
+    lowered = text.lower()
+    exclusions = [str(value).lower() for value in getattr(profile, "exclude_keywords", [])]
+    if any(value and value in lowered for value in exclusions):
+        return False
+    roles = getattr(profile, "target_roles", []) or getattr(profile, "desired_roles", [])
+    keywords = getattr(profile, "keywords", []) or getattr(profile, "skills", [])
+    if not roles and not keywords:
+        return True
+    return any(str(role).lower() in lowered for role in roles) or any(str(keyword).lower() in lowered for keyword in keywords)
+
 
 def relevance_score(query: str, job: Any) -> int:
     """Score query relevance with title dominant over body text."""
@@ -223,6 +276,8 @@ def is_relevant(query: str, job: Any, threshold: int = 45) -> bool:
     if not query.strip():
         return True
     if not any(token in _JOB_INTENT_TOKENS for token in tokens):
+        return False
+    if not is_target_role(job):
         return False
     return len(tokens) < 2 or relevance_score(query, job) >= threshold
 

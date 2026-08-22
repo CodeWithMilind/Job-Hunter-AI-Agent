@@ -247,8 +247,8 @@ class TestTelegramJobModel:
 class TestTelegramDeduplication:
     """Test deduplication of Telegram jobs."""
 
-    def test_telegram_jobs_not_deduplicated_by_normal_rules(self):
-        """Telegram jobs should not be filtered by standard dedup."""
+    def test_telegram_jobs_deduplicate_against_official_posting(self):
+        """Equivalent Telegram and official postings produce one direct job."""
         from hirevia.pipeline import deduplicate_jobs
         
         job1 = Job(
@@ -268,6 +268,6 @@ class TestTelegramDeduplication:
         
         result = deduplicate_jobs([job1, job2])
         
-        # Both should be in result since job1 is Telegram
-        assert len([j for j in result if j.source == "Telegram"]) == 1
+        assert len(result) == 1
+        assert result[0].source == "GitHub"
         assert len([j for j in result if j.source == "GitHub"]) == 1

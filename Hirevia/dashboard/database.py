@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from hirevia.eligibility import INDIA_ELIGIBLE, UNKNOWN, classify_india_eligibility
-from hirevia.quality import normalize_url
+from hirevia.quality import is_fresher_eligible, is_target_role, normalize_url
 
 DB_PATH = os.environ.get("hirevia_DB", os.path.join(os.path.dirname(__file__), "hirevia_dashboard.db"))
 
@@ -253,17 +253,14 @@ def get_jobs(
     limit: int = 200,
     offset: int = 0,
 ) -> List[Dict[str, Any]]:
-    clauses = ["score >= ?", "score <= ?"]
-    params: list = [min_score, max_score]
+    clauses = ["score >= ?", "score <= ?", "india_eligibility = ?"]
+    params: list = [min_score, max_score, INDIA_ELIGIBLE]
 
     if status:
         clauses.append("status = ?")
         params.append(status)
     if remote_only:
         clauses.append("remote = 1")
-    if india_eligible_only:
-        clauses.append("india_eligibility = ?")
-        params.append(INDIA_ELIGIBLE)
     if source:
         clauses.append("source = ?")
         params.append(source)
@@ -285,7 +282,7 @@ def get_jobs(
             f"SELECT * FROM jobs WHERE {where} ORDER BY {sort_by} {order} LIMIT ? OFFSET ?",
             (*params, limit, offset),
         ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return [job for job in (_row_to_dict(r) for r in rows) if is_fresher_eligible(job) and is_target_role(job)]
 
 
 def update_job_status(job_id: int, new_status: str) -> Optional[Dict[str, Any]]:
@@ -320,6 +317,16 @@ def delete_all_jobs() -> int:
         cur = conn.execute("DELETE FROM jobs")
         conn.commit()
         return cur.rowcount
+
+
+def clear_runtime_data() -> int:
+    """Clear dashboard runtime tables while preserving the database schema."""
+    with get_db() as conn:
+        deleted = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        for table in ("jobs", "activity_log", "search_history", "config", "source_status"):
+            conn.execute(f"DELETE FROM {table}")
+        conn.commit()
+        return deleted
 
 
 # ─── Stats ─────────────────────────────────────────────────────────────────

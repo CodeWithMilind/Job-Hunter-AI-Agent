@@ -11,6 +11,8 @@ from hirevia.quality import (
     is_expired,
     is_relevant,
     normalize_url,
+    is_fresher_eligible,
+    is_target_role,
     verify_application_link,
 )
 
@@ -99,3 +101,13 @@ def test_link_verification_states_without_live_network():
     assert verify_application_link("https://example.com/job", session=Session(410)) == LinkState.VERIFIED_UNAVAILABLE
     assert verify_application_link("https://example.com/job", session=Session(error=TimeoutError())) == LinkState.UNKNOWN
     assert verify_application_link("not-a-url", session=Session(200)) == LinkState.UNKNOWN
+
+
+def test_fresher_and_role_gates():
+    assert is_fresher_eligible(job("Data Scientist Intern", description="0-2 years experience"))
+    assert is_fresher_eligible(job("Graduate Trainee", description="Fresh graduate"))
+    assert not is_fresher_eligible(job("Senior Data Engineer", description="5 years experience"))
+    assert not is_fresher_eligible(job("Lead Software Engineer", description="3+ years"))
+    assert is_target_role(job("Data Analyst Intern"))
+    assert is_target_role(job("Backend Developer"))
+    assert not is_target_role(job("Sales Associate"))

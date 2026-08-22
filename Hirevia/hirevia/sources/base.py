@@ -37,6 +37,9 @@ class JobSource(ABC):
         """Fetch one source without allowing its failure to stop other sources."""
         try:
             jobs = self.fetch(query, **kwargs)
+            source_error = str(getattr(self, "last_error", "") or "")
+            if source_error:
+                raise RuntimeError(source_error)
             for job in jobs:
                 job.source = self.name
                 job.source_type = self.source_type

@@ -10,6 +10,16 @@ import dashboard.app as app_mod
 
 class FakeTelegramSearch:
     jobs = []
+    source_id = "telegram"
+    source_type = "Telegram"
+    name = "Telegram"
+    metadata = {}
+    enabled = True
+
+    @staticmethod
+    def _get_config_dir():
+        from pathlib import Path
+        return Path(".")
 
     def __init__(self):
         self.called_query = None
@@ -18,6 +28,10 @@ class FakeTelegramSearch:
         self.called_query = query
         return self.jobs
 
+    def fetch_safely(self, query, **kwargs):
+        from types import SimpleNamespace
+        return SimpleNamespace(jobs=self.fetch(query, **kwargs), error="")
+
 
 def enable_telegram(monkeypatch, tmp_path):
     (tmp_path / "sources.yaml").write_text(
@@ -25,15 +39,16 @@ def enable_telegram(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(app_mod, "_project_root", str(tmp_path))
     monkeypatch.setattr("hirevia.sources.telegram.TelegramSearch", FakeTelegramSearch)
+    monkeypatch.setattr("hirevia.sources.registry.TelegramSearch", FakeTelegramSearch)
 
 
-def make_job(url, message_id, title="Python Developer"):
+def make_job(url, message_id, title="Python Developer Intern"):
     return SimpleNamespace(
         title=title,
         company="Example",
         location="Remote",
         url=url,
-        description="Hiring for a Python Developer",
+        description="Hiring for a Python Developer internship",
         salary="",
         source="Telegram",
         source_type="Telegram",
@@ -47,7 +62,7 @@ def make_job(url, message_id, title="Python Developer"):
         country="",
         location_restrictions=[],
         timezone="",
-        india_eligibility="Unknown",
+        india_eligibility="INDIA_ELIGIBLE",
         tags=["Python"],
         posted="",
         score=0,
@@ -89,7 +104,7 @@ def test_fetch_endpoint_empty_query_and_duplicates(monkeypatch, tmp_path):
     result = app_mod.fetch_telegram_jobs(app_mod.TelegramFetchRequest())
 
     assert result["new_jobs"] == 1
-    assert result["duplicates"] == 1
+    assert result["duplicates"] == 0
     assert len(stored) == 1
 
 

@@ -10,8 +10,8 @@ from hirevia.llm_relevance import LLMJobResult, SearchIntent
 def test_llm_relevance_removes_candidate(monkeypatch):
     import hirevia.pipeline as pipeline
 
-    good = Job("Python Developer", "GoodCo", "Remote", "https://good.test/job", "Python backend")
-    weak = Job("Backend Engineer", "WeakCo", "Remote", "https://weak.test/job", "Python backend")
+    good = Job("Python Developer Intern", "GoodCo", "India", "https://good.test/job", "Python backend internship")
+    weak = Job("Backend Engineer Intern", "WeakCo", "India", "https://weak.test/job", "Python backend internship")
 
     class Source:
         name = "Test"

@@ -19,8 +19,12 @@ from hirevia.quality import (
     duplicate_key,
     freshness_score,
     is_expired,
+    is_fresher_eligible,
+    is_target_role,
     is_likely_application_url,
     is_relevant,
+    profile_match_score,
+    profile_matches,
     relevance_score,
     verify_application_link,
 )
@@ -38,8 +42,13 @@ logger = logging.getLogger(__name__)
 def deduplicate_jobs(jobs: List[Job]) -> List[Job]:
     """Deduplicate all jobs by stable URL/ID, then company/title/location fallback."""
     seen = set()
-    seen_fallback = set()
+    fallback_indexes: Dict[str, int] = {}
     unique: List[Job] = []
+
+    def directness(job: Job) -> int:
+        url = (job.url or "").lower()
+        return 0 if "t.me/" in url or "telegram.me/" in url else 1
+
     for job in jobs:
         key = duplicate_key(job)
         fallback = "|".join(
@@ -49,11 +58,15 @@ def deduplicate_jobs(jobs: List[Job]) -> List[Job]:
         has_reliable_identity = key.startswith("url:") or key.startswith("id:")
         if has_reliable_identity and urlsplit(job.url).netloc in {"example.com", "example.org", "example.net"}:
             has_reliable_identity = False
-        if key not in seen and (has_reliable_identity or fallback not in seen_fallback):
+        if key not in seen and fallback not in fallback_indexes:
             seen.add(key)
-            if not has_reliable_identity:
-                seen_fallback.add(fallback)
+            fallback_indexes[fallback] = len(unique)
             unique.append(job)
+        elif fallback in fallback_indexes:
+            index = fallback_indexes[fallback]
+            current = unique[index]
+            if directness(job) > directness(current):
+                unique[index] = job
     return unique
 
 
@@ -110,6 +123,8 @@ def search_jobs(
     llm_url: str = "",
     llm_model: str = "",
     show_output: bool = True,
+    source_ids: Optional[List[str]] = None,
+    scan_stats: Optional[Dict[str, Any]] = None,
 ) -> List[Job]:
     ai_enabled = ai_enabled and os.environ.get("LLM_ENABLED", "true").lower() not in {"0", "false", "no"}
     """Execute the shared search pipeline used by the CLI and API."""
@@ -141,9 +156,16 @@ def search_jobs(
 
     registry = SourceRegistry.from_yaml(sources_path)
     sources = registry.enabled_sources(overrides={"linkedin": True} if enable_linkedin else None)
+    if source_ids is not None:
+        sources = [source for source in sources if source.source_id in source_ids]
 
     all_jobs: List[Job] = []
     source_counts: Dict[str, int] = {}
+    source_errors: Dict[str, str] = {}
+    stats = scan_stats if scan_stats is not None else {}
+    stats.update({"sources": {}, "raw_jobs": 0, "normalized": 0})
+    logger.info("[SCAN] Started (%d sources)", len(sources))
+    profile = profile or Profile(name="Job Seeker")
 
     if show_output:
         from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
@@ -165,18 +187,20 @@ def search_jobs(
         task = None
 
     try:
-        with ThreadPoolExecutor(max_workers=min(len(sources), 10)) as pool:
-            future_to_source = {
-                pool.submit(
+        if not sources:
+            logger.warning("[SCAN] No enabled sources configured")
+        with ThreadPoolExecutor(max_workers=max(1, min(len(sources), 10))) as pool:
+            future_to_source = {}
+            for source in sources:
+                logger.info("[SOURCE] %s: fetching", source.name)
+                future_to_source[pool.submit(
                     source.fetch_safely,
                     query,
                     location=location,
                     limit=limit,
                     max_pages=max_pages,
                     companies_path=companies_path,
-                ): source
-                for source in sources
-            }
+                )] = source
 
             for future in as_completed(future_to_source):
                 source = future_to_source[future]
@@ -185,9 +209,15 @@ def search_jobs(
                     if result.error:
                         raise RuntimeError(result.error)
                     source_counts[source.name] = len(result.jobs)
+                    stats["sources"][source.source_id] = {"name": source.name, "type": source.source_type, "jobs": len(result.jobs), "error": ""}
+                    telegram_stats = getattr(source, "last_scan_stats", None)
+                    if telegram_stats:
+                        stats["telegram"] = dict(telegram_stats)
+                    logger.info("[SOURCE] %s: %d jobs", source.name, len(result.jobs))
                     for job in result.jobs:
                         normalize_job(job)
                     all_jobs.extend(result.jobs)
+                    stats["normalized"] = len(all_jobs)
                     if task is not None:
                         progress_context.update(
                             task,
@@ -197,6 +227,9 @@ def search_jobs(
                 except Exception as exc:  # pragma: no cover - defensive
                     logger.warning("%s search failed: %s", source.name, exc)
                     source_counts[source.name] = 0
+                    source_errors[source.name] = str(exc)
+                    stats["sources"][source.source_id] = {"name": source.name, "type": source.source_type, "jobs": 0, "error": str(exc)}
+                    logger.error("[SOURCE] %s: ERROR %s", source.name, exc)
                     if task is not None:
                         progress_context.update(
                             task,
@@ -207,12 +240,23 @@ def search_jobs(
         if progress_context is not None:
             progress_context.__exit__(None, None, None)
 
+    stats["raw_jobs"] = len(all_jobs)
+    logger.info("[SCAN] Raw jobs: %d", stats["raw_jobs"])
+    logger.info("[SCAN] Normalized: %d", stats["normalized"])
+    deduplicated_jobs = deduplicate_jobs(all_jobs)
+    stats["after_deduplication"] = len(deduplicated_jobs)
     # Quality gates run before cache filtering and scoring so invalid or weak
     # opportunities never become new results or consume AI work.
     quality_jobs: List[Job] = []
     link_states: Dict[str, LinkState] = {}
-    for job in deduplicate_jobs(all_jobs):
+    for job in deduplicated_jobs:
+        if job.india_eligibility != INDIA_ELIGIBLE:
+            continue
         if is_expired(job):
+            continue
+        if not is_fresher_eligible(job) or not is_target_role(job):
+            continue
+        if not profile_matches(job, profile):
             continue
         if not is_relevant(query, job):
             continue
@@ -239,6 +283,13 @@ def search_jobs(
         }
         quality_jobs.append(job)
     all_jobs = quality_jobs
+    stats["india_eligible"] = sum(job.india_eligibility == INDIA_ELIGIBLE for job in deduplicated_jobs)
+    stats["fresher_eligible"] = sum(is_fresher_eligible(job) for job in deduplicated_jobs if job.india_eligibility == INDIA_ELIGIBLE)
+    stats["relevant_roles"] = len(quality_jobs)
+    logger.info("[SCAN] India eligible: %d", stats["india_eligible"])
+    logger.info("[SCAN] Fresher eligible: %d", stats["fresher_eligible"])
+    logger.info("[SCAN] Relevant roles: %d", stats["relevant_roles"])
+    logger.info("[SCAN] After deduplication: %d", stats["after_deduplication"])
 
     cache = None
     if not no_cache:
@@ -253,8 +304,9 @@ def search_jobs(
         except Exception as exc:
             logger.warning("Cache unavailable: %s", exc)
 
-    if india_eligible_only:
-        all_jobs = [job for job in all_jobs if job.india_eligibility == INDIA_ELIGIBLE]
+    # India-only is a product invariant; retain the old parameter for API
+    # compatibility but never allow it to be disabled.
+    all_jobs = [job for job in all_jobs if job.india_eligibility == INDIA_ELIGIBLE]
 
     if show_output:
         src_summary = ", ".join(f"{name}: {count}" for name, count in source_counts.items() if count > 0)
@@ -268,8 +320,6 @@ def search_jobs(
         if show_output:
             console.print("[bold red]No jobs found.[/bold red]")
         return []
-
-    profile = profile or Profile(name="Job Seeker")
 
     if ai_enabled and not use_nvidia:
         if llm_model:
@@ -319,8 +369,10 @@ def search_jobs(
                 job.rating = "No AI"
     elif not ai_enabled:
         for job in all_jobs:
-            job.score = 50
-            job.rating = "Skipped"
+            profile_score = profile_match_score(job, profile)
+            freshness = int((job.source_metadata or {}).get("freshness_score", 25))
+            job.score = round(profile_score * 0.65 + relevance_score(query, job) * 0.10 + freshness * 0.20 + (5 if job.source == "Greenhouse" else 0))
+            job.rating = "Deterministic"
 
     if use_nvidia and nvidia_intent is not None:
         candidate_limit = nvidia_client.max_candidates
@@ -418,6 +470,8 @@ def search_jobs(
         else:
             job.score = round((job.score * 0.8) + (freshness * 0.2))
     all_jobs.sort(key=lambda job: job.score, reverse=True)
+    stats["final_jobs"] = len(all_jobs)
+    logger.info("[SCAN] Final jobs: %d", stats["final_jobs"])
 
     if show_output:
         display_jobs(all_jobs, profile, ai_enabled)
