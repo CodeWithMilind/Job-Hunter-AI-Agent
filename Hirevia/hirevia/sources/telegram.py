@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 import yaml
 from dotenv import load_dotenv
@@ -61,7 +61,8 @@ class TelegramSearch(JobSource):
             data = yaml.safe_load(f)
             if data is None:
                 return []
-            return data.get("channels", [])
+            channels = data.get("channels", [])
+            return channels if isinstance(channels, list) else []
 
     @staticmethod
     def _get_state_file() -> Path:
@@ -78,16 +79,20 @@ class TelegramSearch(JobSource):
     def _load_state():
         state_file = TelegramSearch._get_state_file()
         if state_file.exists():
-            return json.loads(state_file.read_text(encoding="utf-8"))
+            try:
+                state = json.loads(state_file.read_text(encoding="utf-8"))
+                return state if isinstance(state, dict) else {}
+            except (OSError, ValueError):
+                logger.warning("Telegram state file is invalid; starting from saved channel offsets")
+                return {}
         return {}
 
     @staticmethod
     def _save_state(state):
         state_file = TelegramSearch._get_state_file()
-        state_file.write_text(
-            json.dumps(state, indent=2),
-            encoding="utf-8",
-        )
+        temporary = state_file.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        temporary.replace(state_file)
 
     @staticmethod
     def _is_job(text: str) -> bool:
@@ -247,6 +252,14 @@ class TelegramSearch(JobSource):
             ],
         )
 
+        experience = self._field(text, [
+            r"(?:experience|exp)\s*(?:required)?\s*[:\-]\s*(.+?)(?:\n|$)",
+            r"((?:0|1|2)\s*(?:[-–]\s*[012])?\s*years?|fresher|fresh graduate|entry[- ]level)",
+        ])
+        employment_type = self._field(text, [
+            r"(?:employment|job|work)\s*type\s*[:\-]\s*(.+?)(?:\n|$)",
+        ])
+
         remote = "remote" in text.lower() or "work from home" in text.lower()
         
         if not location:
@@ -283,6 +296,8 @@ class TelegramSearch(JobSource):
                 "telegram_message_id": str(message.id),
                 "telegram_message_url": tg_url,
                 "skills": skills,
+                "experience": experience,
+                "employment_type": employment_type,
             },
             tags=[item.strip() for item in skills.split(",") if item.strip()],
             remote=remote,
@@ -305,6 +320,7 @@ class TelegramSearch(JobSource):
 
         await client.connect()
         if not await client.is_user_authorized():
+            self.last_error = "Telegram session is not authenticated; run the verification command to authenticate"
             logger.warning("Telegram session is not authenticated; Telegram skipped")
             await client.disconnect()
             return []
@@ -337,6 +353,7 @@ class TelegramSearch(JobSource):
                             jobs.append(job)
                     state[username] = newest_id
                 except Exception as exc:
+                    self.last_error = f"{self.last_error}; {username}: {exc}".strip("; ")
                     logger.warning("Telegram channel %s failed: %s", username, exc)
 
         finally:
@@ -395,3 +412,42 @@ class TelegramSearch(JobSource):
             self.last_error = str(e)
             logger.warning(f"Telegram fetch failed: {e}")
             return []
+
+
+def _verification_main() -> int:
+    """Run a safe, human-readable Telegram source verification."""
+    source = TelegramSearch()
+    print("Telegram authentication: checking reusable session")
+    if TelegramClient is None:
+        print("ERROR: Telethon is not installed. Install project requirements in .venv.")
+        return 2
+    missing = [name for name in ("TELEGRAM_API_ID", "TELEGRAM_API_HASH") if not os.getenv(name)]
+    if missing:
+        print(f"ERROR: missing environment variable(s): {', '.join(missing)}")
+        print("Set them before running this command; no secrets are printed or stored by Hirevia.")
+        return 2
+    if not source._channels:
+        print("ERROR: no enabled channels found in telegram.yaml")
+        return 2
+    source.enabled = True
+    jobs = source.fetch("", limit=50)
+    unique = []
+    seen = set()
+    for job in jobs:
+        message_id = (job.source_metadata or {}).get("telegram_message_id")
+        if message_id in seen:
+            continue
+        seen.add(message_id)
+        unique.append(job)
+    stats = source.last_scan_stats
+    print(f"Authentication status: {'authenticated' if not source.last_error else source.last_error}")
+    print(f"Channels checked: {stats['channels_checked']}")
+    print(f"Messages fetched: {stats['messages_fetched']}")
+    print(f"Jobs extracted: {stats['jobs_extracted']}")
+    print(f"Duplicates removed: {len(jobs) - len(unique)}")
+    print(f"Final jobs returned: {len(unique)}")
+    return 0 if not source.last_error else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(_verification_main())

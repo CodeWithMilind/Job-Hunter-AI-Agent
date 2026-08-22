@@ -243,6 +243,16 @@ class TestTelegramJobModel:
         assert job.source_metadata["channel_username"] == "@jobschannel"
         assert "telegram_message_url" in job.source_metadata
 
+    def test_parse_extracts_experience_and_employment_type(self):
+        telegram = TelegramSearch()
+        message = Mock()
+        message.text = "Role: Data Analyst Intern\nCompany: DataCo\nLocation: Pune, India\nExperience: 0-1 years\nEmployment Type: Internship\nSkills: Python, SQL"
+        message.id = 10001
+        message.date = datetime.now()
+        job = telegram._parse(message, "Test Jobs", "@jobschannel")
+        assert job.source_metadata["experience"] == "0-1 years"
+        assert job.source_metadata["employment_type"] == "Internship"
+
 
 class TestTelegramDeduplication:
     """Test deduplication of Telegram jobs."""

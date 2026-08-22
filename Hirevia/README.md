@@ -18,6 +18,13 @@ Edit `profile.yaml` once with target roles, keywords, locations, exclusions, and
 
 No resume upload, extraction, or candidate JSON is required. `profile.yaml` is the only user preference configuration.
 
+## Dashboard
+
+Run the admin dashboard with `python -m uvicorn dashboard.app:app --host 0.0.0.0 --port 3000`.
+The dark dashboard includes live monitoring, scanned and matched job views, source health,
+Telegram status, and an editable `profile.yaml` editor. Search and save actions use the
+existing dashboard APIs; no job-matching logic is duplicated in the frontend.
+
 ## Phase 1 quality gates
 
 The shared pipeline now keeps fewer, fresher, more relevant opportunities:
@@ -169,32 +176,28 @@ Telegram remains optional for normal searches. Monitoring uses it when enabled a
 
 ## Telegram configuration
 
-Telegram is fully optional and integrated into the unified pipeline as just another job source.
+Telegram is an optional public-channel source integrated into the unified pipeline as just another job source.
 
-### Why Telegram is optional
+### Telegram setup
 
-- Normal job search works perfectly without Telegram enabled
-- Telegram uses the optional Telethon library when it is available
-- Telegram requires API credentials (API_ID, API_HASH)
-- Telegram requires a persistent session after first authentication
-- The checked-in configuration has Telegram enabled; missing credentials still skip it safely
-
-### Setting up Telegram (optional)
-
-1. **Get Telegram API credentials:**
+1. Install dependencies into the existing environment:
+   ```powershell
+   .venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
+2. **Get Telegram API credentials:**
    - Visit https://my.telegram.org/
    - Log in with your Telegram account
    - Go to "API development tools"
    - Create a new application
    - Copy `api_id` and `api_hash`
 
-2. **Set environment variables:**
+3. **Set environment variables** (never commit these values):
    ```bash
    export TELEGRAM_API_ID="your_api_id"
    export TELEGRAM_API_HASH="your_api_hash"
    ```
 
-3. **Create telegram.yaml** with job channels:
+4. **Configure public channels in `telegram.yaml`:**
    ```yaml
    channels:
      - name: "Job Channel 1"
@@ -207,34 +210,38 @@ Telegram is fully optional and integrated into the unified pipeline as just anot
        limit: 50
    ```
 
-4. **Enable Telegram in sources.yaml:**
+5. **Enable Telegram in `sources.yaml`:**
    ```yaml
    telegram: { enabled: true }
    ```
 
-5. **Authenticate the session:**
-   The first authenticated Telethon session must be created separately with your
-   normal Telethon login flow. Hirevia connects only when that session is already
-   authorized, so a dashboard search never hangs waiting for phone/code input.
-   The session is saved at the project root as `job_hunter_session.session` and
-   reused automatically from both the project root and `dashboard/`.
+6. **Authenticate and verify once:**
+   Run `python -m hirevia.sources.telegram` from the project root. On the first
+   run, Telethon may request the normal interactive Telegram login code. Later
+   scans reuse `job_hunter_session.session` and do not ask for login again.
 
 ### How Telegram works
 
-1. Telegram source is fetched during normal searches alongside GitHub, Greenhouse, etc.
-2. Hirevia reads configured channels for job postings
-3. Job detection filters out non-job content (courses, webinars, promotions)
-4. Job titles, companies, locations, URLs are extracted when possible
-5. Results are deduplicated and scored with the AI engine
-6. Jobs appear in the same dashboard/CLI output as other sources
+1. The monitoring worker calls Telegram through `SourceRegistry` every 15 seconds.
+2. New messages after each channel's saved ID are fetched and parsed into `Job`.
+3. The shared pipeline applies India, fresher, role, deduplication, freshness, and link gates.
+4. Valid jobs are saved to the dashboard database and appear at `/api/jobs`.
 
 ### Telegram failures don't break other sources
 
-If Telegram fails:
-- Missing credentials → skipped gracefully
-- Network error → skipped with warning
-- Authentication error → skipped with warning
-- Jobs from GitHub, Greenhouse, etc. still return normally
+If Telegram fails, the source records the actionable error in the scan log and
+source status; other collectors continue normally.
+
+### Verify Telegram
+
+```powershell
+.venv\Scripts\python.exe -m hirevia.sources.telegram
+```
+
+The command reports authentication status, channels checked, messages fetched,
+jobs extracted, duplicates removed, and final jobs returned. Missing
+`TELEGRAM_API_ID` or `TELEGRAM_API_HASH` is reported by name without exposing
+secret values.
 
 ### Session management
 
@@ -256,18 +263,17 @@ export TELEGRAM_API_HASH="your_api_hash"
 
 ## Profile setup
 
-Create `profile.yaml` with your details so the AI scorer can rank jobs against your profile:
+Edit `profile.yaml` to control the deterministic job search:
 
 ```yaml
-name: "Your Name"
-title: "Software Engineer"
-experience_years: 5
-skills: [Python, Docker, AWS, React]
-desired_roles: [Backend Engineer, SRE]
-salary_min: 100000
-salary_max: 160000
-location_preference: "Remote"
-remote_ok: true
+target_roles: [Data Scientist, Data Analyst, Python Developer]
+keywords: [Python, SQL, Pandas, FastAPI]
+locations: [India, Pune, Remote India]
+experience: [internship, fresher, entry level]
+exclude_keywords: [Senior, Lead, Manager, "3+ years"]
+settings:
+   scan_interval_seconds: 15
+   max_results: 200
 industries: [Fintech, SaaS]
 ```
 
