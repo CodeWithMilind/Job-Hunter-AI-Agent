@@ -1,4 +1,4 @@
-"""Tests for Greenhouse and Ashby ATS sources + normalization + cache."""
+"""Tests for the Greenhouse ATS source, normalization, and cache."""
 
 import json
 import os
@@ -131,135 +131,6 @@ class TestGreenhouseSearch:
         assert jobs == []
 
 
-# ─── Ashby normalization ──────────────────────────────────────────────────
-
-class TestAshbyDateNormalization:
-    def test_iso_with_millis(self):
-        from hirevia.sources.ashby import _parse_ashby_date
-        assert _parse_ashby_date("2026-07-20T19:30:12.000Z") == "2026-07-20"
-
-    def test_iso_utc(self):
-        from hirevia.sources.ashby import _parse_ashby_date
-        assert _parse_ashby_date("2026-07-20T19:30:12Z") == "2026-07-20"
-
-    def test_date_only(self):
-        from hirevia.sources.ashby import _parse_ashby_date
-        assert _parse_ashby_date("2026-07-20") == "2026-07-20"
-
-    def test_empty(self):
-        from hirevia.sources.ashby import _parse_ashby_date
-        assert _parse_ashby_date(None) == ""
-        assert _parse_ashby_date("") == ""
-
-
-class TestAshbyEmploymentNormalization:
-    def test_full_time_variants(self):
-        from hirevia.sources.ashby import _normalize_employment_type
-        assert _normalize_employment_type("full_time") == "Full-time"
-        assert _normalize_employment_type("full-time") == "Full-time"
-        assert _normalize_employment_type("fulltime") == "Full-time"
-
-    def test_part_time(self):
-        from hirevia.sources.ashby import _normalize_employment_type
-        assert _normalize_employment_type("part_time") == "Part-time"
-
-    def test_contract(self):
-        from hirevia.sources.ashby import _normalize_employment_type
-        assert _normalize_employment_type("contract") == "Contract"
-
-    def test_empty(self):
-        from hirevia.sources.ashby import _normalize_employment_type
-        assert _normalize_employment_type(None) == ""
-        assert _normalize_employment_type("") == ""
-
-    def test_unknown_passthrough(self):
-        from hirevia.sources.ashby import _normalize_employment_type
-        assert _normalize_employment_type("freelance") == "Freelance"
-
-
-class TestAshbyRemoteDetection:
-    def test_remote_in_constraints(self):
-        from hirevia.sources.ashby import _detect_remote
-        assert _detect_remote({"locationConstraints": [{"location": "Remote"}]}) is True
-
-    def test_remote_in_title(self):
-        from hirevia.sources.ashby import _detect_remote
-        assert _detect_remote({"title": "Remote Engineer"}) is True
-
-    def test_not_remote(self):
-        from hirevia.sources.ashby import _detect_remote
-        assert _detect_remote({"title": "Engineer", "locationConstraints": [{"location": "NYC"}]}) is False
-
-
-class TestAshbyJobNormalization:
-    def test_basic_job(self):
-        from hirevia.sources.ashby import _normalize_job
-        data = {
-            "id": "abc-123",
-            "title": "AI Engineer",
-            "locationConstraints": [{"location": "Remote"}],
-            "employmentCategory": "full_time",
-            "teamName": "Research",
-            "publishedAt": "2026-07-20T19:30:12.000Z",
-            "descriptionPlain": "Build AI models",
-            "applicationUrl": "https://jobs.ashbyhq.com/openai/apply/123",
-        }
-        job = _normalize_job(data, "openai")
-        assert job.title == "AI Engineer"
-        assert job.company == "Openai"
-        assert job.location == "Remote"
-        assert job.remote is True
-        assert job.source == "Ashby"
-        assert "Full-time" in job.tags
-        assert "Research" in job.tags
-        assert job.posted == "2026-07-20"
-        assert job.url == "https://jobs.ashbyhq.com/openai/apply/123"
-
-    def test_empty_title_skipped(self):
-        from hirevia.sources.ashby import _normalize_job
-        assert _normalize_job({"title": ""}, "test") is None
-
-    def test_salary_extraction(self):
-        from hirevia.sources.ashby import _normalize_job
-        data = {
-            "id": "1",
-            "title": "Eng",
-            "locationConstraints": [],
-            "compensation": {"minAmount": 120000, "maxAmount": 180000, "currency": "USD"},
-        }
-        job = _normalize_job(data, "acme")
-        assert "120,000" in job.salary
-        assert "180,000" in job.salary
-
-
-class TestAshbySearch:
-    @patch("hirevia.sources.ashby.requests.get")
-    def test_search_filters_by_query(self, mock_get, tmp_path):
-        companies_file = tmp_path / "companies.yaml"
-        companies_file.write_text(yaml.dump({"ashby": ["testcorp"]}))
-
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"jobs": [
-                {"id": "1", "title": "Python Developer", "locationConstraints": []},
-                {"id": "2", "title": "Marketing Manager", "locationConstraints": []},
-            ]}
-        )
-        from hirevia.sources.ashby import AshbySearch
-        jobs = AshbySearch.search("python", companies_path=str(companies_file))
-        assert len(jobs) == 1
-        assert jobs[0].title == "Python Developer"
-
-    @patch("hirevia.sources.ashby.requests.get")
-    def test_handles_non_200(self, mock_get, tmp_path):
-        companies_file = tmp_path / "companies.yaml"
-        companies_file.write_text(yaml.dump({"ashby": ["testcorp"]}))
-        mock_get.return_value = MagicMock(status_code=404)
-        from hirevia.sources.ashby import AshbySearch
-        jobs = AshbySearch.search("python", companies_path=str(companies_file))
-        assert jobs == []
-
-
 # ─── Seen-jobs cache ──────────────────────────────────────────────────────
 
 class TestSeenJobsCache:
@@ -269,8 +140,8 @@ class TestSeenJobsCache:
         cache = SeenJobsCache(db_path=db_path, ttl_days=7)
 
         jobs = [
-            Job(title="Python Dev", company="Acme", location="X", url="u1", source="Remotive"),
-            Job(title="Go Dev", company="Beta", location="Y", url="u2", source="Remotive"),
+            Job(title="Python Dev", company="Acme", location="X", url="u1", source="Test"),
+            Job(title="Go Dev", company="Beta", location="Y", url="u2", source="Test"),
         ]
 
         # First run — all new
@@ -291,14 +162,14 @@ class TestSeenJobsCache:
         cache = SeenJobsCache(db_path=str(tmp_path / "test.db"), ttl_days=7)
 
         jobs_a = [
-            Job(title="Python Dev", company="Acme", location="X", url="u1", source="Remotive"),
-            Job(title="Go Dev", company="Beta", location="Y", url="u2", source="Remotive"),
+            Job(title="Python Dev", company="Acme", location="X", url="u1", source="Test"),
+            Job(title="Go Dev", company="Beta", location="Y", url="u2", source="Test"),
         ]
         cache.mark_seen(jobs_a)
 
         jobs_b = [
-            Job(title="Python Dev", company="Acme", location="X", url="u1", source="Remotive"),  # seen
-            Job(title="Rust Dev", company="Gamma", location="Z", url="u3", source="Remotive"),  # new
+            Job(title="Python Dev", company="Acme", location="X", url="u1", source="Test"),  # seen
+            Job(title="Rust Dev", company="Gamma", location="Z", url="u3", source="Test"),  # new
         ]
         new = cache.filter_new(jobs_b)
         assert len(new) == 1

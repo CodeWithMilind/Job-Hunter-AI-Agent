@@ -63,12 +63,6 @@ exclude_keywords:
   - 5+ years
 sources:
   - greenhouse
-  - ashby
-  - remotive
-  - arbeitnow
-  - remoteok
-  - jobicy
-  - himalayas
   - telegram
 telegram:
   enabled: true

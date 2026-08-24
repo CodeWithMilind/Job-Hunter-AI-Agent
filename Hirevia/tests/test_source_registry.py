@@ -8,18 +8,17 @@ from hirevia.sources.registry import SourceRegistry
 
 def test_built_in_sources_are_registered_with_categories():
     registry = SourceRegistry({"sources": {}})
-    assert registry.get("remotive").source_type == "API"
     assert registry.get("greenhouse").source_type == "Career Portal"
     assert registry.get("linkedin").enabled is False
+    assert {source["id"] for source in registry.metadata()} == {"greenhouse", "linkedin"}
     assert "telegram" not in {source.source_id for source in registry.enabled_sources()}
 
 
 def test_yaml_config_enables_and_disables_sources(tmp_path):
     config = tmp_path / "sources.yaml"
-    config.write_text("sources:\n  remotive: { enabled: false }\n  linkedin: { enabled: true }\n")
+    config.write_text("sources:\n  linkedin: { enabled: true }\n")
     registry = SourceRegistry.from_yaml(str(config))
     enabled = {source.source_id for source in registry.enabled_sources()}
-    assert "remotive" not in enabled
     assert "linkedin" in enabled
 
 
@@ -47,13 +46,6 @@ def test_source_failure_is_isolated():
     assert failed.jobs == []
     assert "source unavailable" in failed.error
     assert len(working.jobs) == 1
-
-
-@patch("hirevia.sources.remotive.requests.get", side_effect=Exception("offline"))
-def test_legacy_source_failures_are_reported_to_registry(mock_get):
-    result = SourceRegistry({"sources": {}}).get("remotive").fetch_safely("python")
-    assert result.jobs == []
-    assert "offline" in result.error
 
 
 def test_source_metadata_is_attached_to_collected_jobs():

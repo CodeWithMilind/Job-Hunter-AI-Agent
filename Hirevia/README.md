@@ -4,19 +4,35 @@ Hirevia is a single, shared job-search pipeline that runs the same search flow f
 
 The project reuses the existing `Job` model, `SourceRegistry`, built-in sources, cache, database, and AI scoring so there is one authoritative search path instead of two separate implementations.
 
-## Autonomous monitoring workflow
+## Scan and matching pipeline
 
 The dashboard is a small monitoring and debugging interface:
 
 ```text
-Edit `profile.yaml` once with target roles, keywords, locations, exclusions, and scan settings
--> Start Monitoring
--> Every 15 seconds, all enabled sources and configured Telegram feeds are checked
--> Jobs are normalized, filtered, deduplicated, scored, saved, and sent to Telegram
--> Valid matches appear in the dashboard
+Raw discovered jobs -> normalized jobs -> deduplicated jobs -> stored/scanned jobs
+-> deterministic match score -> matched jobs (score >= 50), sorted by score
 ```
 
-No resume upload, extraction, or candidate JSON is required. `profile.yaml` is the only user preference configuration.
+All deduplicated jobs are retained as scanned records, including jobs with
+missing descriptions, locations, or experience data. Matching is a score, not
+an AND filter: target-role variants, profile keywords, preferred locations, and
+early-career evidence increase the score; explicit senior titles or excessive
+experience requirements reduce it. The profile in `profile.yaml` supplies the
+roles, skills, locations, experience terms, exclusions, enabled sources, and
+result settings used by the pipeline.
+
+Jobs below the threshold remain visible on Scanned and Jobs but do not appear
+on Matched. Dashboard counts are read from the same stored records, while New
+Jobs is based on the latest discovery/cache result. Historical records are
+kept in the database rather than silently deleted.
+
+## Autonomous monitoring workflow
+
+Start Monitoring to run the shared pipeline in one background worker every 15
+seconds. Manual Search calls that same normalization, deduplication, scoring,
+and persistence path. Each enabled source is isolated, so a source error is
+recorded in Sources and does not stop the rest of the scan. Telegram remains an
+optional source and delivery channel.
 
 ## Dashboard
 
@@ -25,17 +41,17 @@ The dark dashboard includes live monitoring, scanned and matched job views, sour
 Telegram status, and an editable `profile.yaml` editor. Search and save actions use the
 existing dashboard APIs; no job-matching logic is duplicated in the frontend.
 
-## Phase 1 quality gates
+## Data quality
 
-The shared pipeline now keeps fewer, fresher, more relevant opportunities:
+The shared pipeline keeps the complete processed dataset and ranks relevant
+opportunities:
 
 ```text
-Query intent -> discovery -> normalize -> expiration -> stable deduplication
--> deterministic relevance -> semantic LLM relevance -> freshness
--> application-link state -> cache -> profile scoring -> final ranking
+Query intent -> discovery -> normalize -> stable deduplication
+-> store scanned records -> profile scoring -> matched ranking
 ```
 
-- Explicitly closed or expired jobs and passed deadlines are rejected. Old posted dates alone are not rejected, and invalid dates remain safe.
+- Explicitly closed or expired jobs are retained as scanned records but do not match. Old posted dates alone are not rejected, and invalid dates remain safe.
 - Duplicate identity prefers normalized application URLs, source/external IDs, and then company + role + location. Tracking parameters and trailing slashes are normalized.
 - Freshness is deterministic from published/posted/updated timestamps with bands for under 1 hour, 6 hours, 24 hours, 1-3 days, and older jobs.
 - Application links are classified as `verified_active`, `verified_unavailable`, or `unknown`. Only definitive 404/410-style unavailability is filtered; network failures remain unknown.
@@ -85,7 +101,7 @@ Frontend/API ──────┘
 
 ## Source coverage and compliance
 
-The registry currently supports Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, Greenhouse, Ashby, and public Telegram channels. LinkedIn is retained as a disabled opt-in adapter. Indeed, Naukri, Glassdoor, Wellfound, Internshala, Cutshort, Foundit, Hirist, TimesJobs, Workday, and other login/anti-bot platforms remain unsupported until a permitted API, partner integration, or public feed is available. Hirevia does not bypass authentication, CAPTCHA, robots rules, anti-bot controls, or rate limits.
+The registry currently supports Greenhouse, LinkedIn as a disabled opt-in adapter, and public Telegram channels. Naukri, Internshala, Unstop, Cutshort, Wellfound, Hirist, and other login/anti-bot platforms are not implemented in this checkout. Hirevia does not bypass authentication, CAPTCHA, robots rules, anti-bot controls, or rate limits.
 
 The shared pipeline in `hirevia/pipeline.py` is the source of truth for:
 
@@ -165,8 +181,6 @@ The registry is driven by `sources.yaml`. Individual sources can be enabled or d
 
 ```yaml
 sources:
-  remotive: { enabled: true }
-  remoteok: { enabled: false }
   greenhouse: { enabled: true }
   linkedin: { enabled: false }
   telegram: { enabled: false }
@@ -365,13 +379,7 @@ hire-via/
 │   └── sources/
 │       ├── base.py       # JobSource interface + isolated fetch result
 │       ├── registry.py   # YAML-configured built-in source registry
-│       ├── remotive.py   # Remotive API
-│       ├── arbeitnow.py  # Arbeitnow API (paginated)
-│       ├── remoteok.py   # RemoteOK API
-│       ├── jobicy.py     # Jobicy API
-│       ├── himalayas.py  # Himalayas API
 │       ├── greenhouse.py # Greenhouse ATS (direct API)
-│       ├── ashby.py      # Ashby ATS (direct API)
 │       └── linkedin.py   # LinkedIn scraping (opt-in)
 └── dashboard/
     ├── app.py            # FastAPI backend

@@ -10,14 +10,8 @@ import yaml
 
 from hirevia.models import Job
 from hirevia.sources.base import JobSource
-from hirevia.sources.ashby import AshbySearch
-from hirevia.sources.arbeitnow import ArbeitnowSearch
 from hirevia.sources.greenhouse import GreenhouseSearch
-from hirevia.sources.himalayas import HimalayasSearch
-from hirevia.sources.jobicy import JobicySearch
 from hirevia.sources.linkedin import LinkedInSearch
-from hirevia.sources.remotive import RemotiveSearch
-from hirevia.sources.remoteok import RemoteOKSearch
 from hirevia.sources.telegram import TelegramSearch
 
 
@@ -74,47 +68,11 @@ class LegacySourceAdapter(JobSource):
 
 
 _BUILT_INS = {
-    "remotive": (
-        "Remotive",
-        "API",
-        RemotiveSearch,
-        {},
-    ),
-    "arbeitnow": (
-        "Arbeitnow",
-        "API",
-        ArbeitnowSearch,
-        {},
-    ),
-    "remoteok": (
-        "RemoteOK",
-        "API",
-        RemoteOKSearch,
-        {},
-    ),
-    "jobicy": (
-        "Jobicy",
-        "API",
-        JobicySearch,
-        {},
-    ),
-    "himalayas": (
-        "Himalayas",
-        "API",
-        HimalayasSearch,
-        {},
-    ),
     "greenhouse": (
         "Greenhouse",
         "Career Portal",
         GreenhouseSearch,
         {"provider": "Greenhouse"},
-    ),
-    "ashby": (
-        "Ashby",
-        "Career Portal",
-        AshbySearch,
-        {"provider": "Ashby"},
     ),
     "linkedin": (
         "LinkedIn",
@@ -184,10 +142,7 @@ class SourceRegistry:
                         "",
                     ),
                     supports_location=source_id == "linkedin",
-                    needs_companies=source_id in {
-                        "greenhouse",
-                        "ashby",
-                    },
+                    needs_companies=source_id == "greenhouse",
                 )
             )
 

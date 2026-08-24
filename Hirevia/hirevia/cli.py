@@ -146,7 +146,7 @@ def main():
                         help="Enable LinkedIn scraping (off by default — may violate ToS)")
     # New flags: ATS + cache
     parser.add_argument("--companies", default=DEFAULT_COMPANIES,
-                        help="Companies YAML for Greenhouse/Ashby (default: companies.yaml)")
+                        help="Companies YAML for Greenhouse (default: companies.yaml)")
     parser.add_argument("--sources", default=DEFAULT_SOURCES,
                         help="Source registry YAML (default: sources.yaml)")
     parser.add_argument("--cache-days", type=int, default=7,
@@ -158,7 +158,7 @@ def main():
     parser.add_argument("--clear-cache", action="store_true",
                         help="Clear seen-jobs cache and exit")
     parser.add_argument("--list-ats-companies", action="store_true",
-                        help="Show configured Greenhouse/Ashby company slugs")
+                        help="Show configured Greenhouse company slugs")
 
     args = parser.parse_args()
 
@@ -176,9 +176,7 @@ def main():
             with open(args.companies) as f:
                 data = yaml.safe_load(f)
             gh = data.get("greenhouse", []) if isinstance(data, dict) else []
-            ab = data.get("ashby", []) if isinstance(data, dict) else []
             console.print(f"[bold cyan]Greenhouse ({len(gh)}):[/bold cyan] {', '.join(gh)}")
-            console.print(f"[bold cyan]Ashby ({len(ab)}):[/bold cyan] {', '.join(ab)}")
         except FileNotFoundError:
             console.print(f"[red]Companies file not found: {args.companies}[/red]")
         return

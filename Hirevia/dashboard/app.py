@@ -161,7 +161,7 @@ def _monitor_scan() -> None:
     )
     if generation != _reset_generation:
         return
-    _save_jobs(jobs)
+    _save_jobs(scan_stats.get("processed_jobs", jobs))
     for source_id, source in scan_stats.get("sources", {}).items():
         db.record_source_status(
             {"id": source_id, "name": source["name"], "type": source["type"], "enabled": True},
@@ -170,8 +170,8 @@ def _monitor_scan() -> None:
     telegram_sent = _notify_telegram(jobs)
     _monitor_state.update({
         "last_scan": time.time(), "next_scan": time.time() + MONITOR_INTERVAL_SECONDS,
-        "jobs_scanned": _monitor_state["jobs_scanned"] + scan_stats.get("raw_jobs", 0),
-        "jobs_matched": _monitor_state["jobs_matched"] + len(jobs),
+        "jobs_scanned": db.get_stats().get("scanned", 0),
+        "jobs_matched": db.get_stats().get("matched", len(jobs)),
         "important_jobs": _monitor_state["important_jobs"] + sum(job.score >= 65 for job in jobs),
         "telegram_sent": _monitor_state.get("telegram_sent", 0) + telegram_sent,
         "error": "",
@@ -363,18 +363,19 @@ def fetch_telegram_jobs(request: TelegramFetchRequest):
 
     try:
         from hirevia.pipeline import search_jobs as run_pipeline
+        telegram_scan_stats: Dict[str, Any] = {}
         jobs = run_pipeline(
             query=request.query.strip() or "technology intern", location="India",
             profile=_profile(), ai_enabled=False, limit=request.limit,
             sources_path=str(config_path), no_cache=True, show_output=False,
-            source_ids=["telegram"],
+            source_ids=["telegram"], scan_stats=telegram_scan_stats,
         )
-        fetched_jobs = jobs
+        fetched_jobs = telegram_scan_stats.get("processed_jobs", jobs)
         existing = db.get_jobs(source="Telegram", limit=10000)
         existing_ids = {_telegram_identity(job) for job in existing if _telegram_identity(job)}
         new_count = 0
         duplicate_count = 0
-        for job in jobs:
+        for job in fetched_jobs:
             identity = _telegram_identity(job)
             if identity and identity in existing_ids:
                 duplicate_count += 1
@@ -437,7 +438,9 @@ def delete_job(job_id: int):
 
 @app.get("/api/stats")
 def get_stats():
-    return db.get_stats()
+    stats = db.get_stats()
+    stats["new_jobs"] = _monitor_state.get("scan_stats", {}).get("new", 0)
+    return stats
 
 
 @app.get("/api/sources")
@@ -507,6 +510,7 @@ def search_jobs_json(req: SearchRequest):
     profile_path = os.path.join(_project_root, "profile.yaml")
     profile = Profile.from_yaml(profile_path) if os.path.exists(profile_path) else Profile(name="Job Seeker")
 
+    scan_stats: Dict[str, Any] = {}
     jobs = run_pipeline(
         query=req.query,
         location=req.location,
@@ -516,11 +520,11 @@ def search_jobs_json(req: SearchRequest):
         companies_path=os.path.join(_project_root, "companies.yaml"),
         sources_path=os.path.join(_project_root, "sources.yaml"),
         no_cache=req.no_cache,
-        show_output=False,
+        show_output=False, scan_stats=scan_stats,
     )
 
     payload_jobs = []
-    for job in jobs:
+    for job in scan_stats.get("processed_jobs", jobs):
         payload = {
             "title": job.title,
             "company": job.company,
@@ -550,7 +554,8 @@ def search_jobs_json(req: SearchRequest):
             "timezone": job.timezone,
             "tags": job.tags,
         })
-        payload_jobs.append(payload)
+        if job.score >= 50:
+            payload_jobs.append(payload)
 
     db.record_search(req.query, req.location, len(jobs), len(payload_jobs))
     return {"jobs": payload_jobs, "count": len(payload_jobs), "status": "completed"}
@@ -570,6 +575,7 @@ def _run_search(query: str, location: str, limit: int, no_ai: bool):
 
         profile_path = os.path.join(_project_root, "profile.yaml")
         profile = Profile.from_yaml(profile_path) if os.path.exists(profile_path) else Profile(name="Job Seeker")
+        scan_stats: Dict[str, Any] = {}
 
         jobs = search_jobs(
             query=query,
@@ -581,13 +587,14 @@ def _run_search(query: str, location: str, limit: int, no_ai: bool):
             sources_path=os.path.join(_project_root, "sources.yaml"),
             no_cache=False,
             show_output=False,
+            scan_stats=scan_stats,
         )
 
         _search_state["total"] = len(jobs)
         _search_state["message"] = f"Saving {len(jobs)} jobs to database..."
 
         saved = 0
-        for job in jobs:
+        for job in scan_stats.get("processed_jobs", jobs):
             db.upsert_job({
                 "title": job.title,
                 "company": job.company,

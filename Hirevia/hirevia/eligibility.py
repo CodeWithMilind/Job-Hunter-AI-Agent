@@ -46,7 +46,7 @@ def classify_india_eligibility(*, location: str = "", location_restrictions: obj
         return INDIA_ELIGIBLE
 
     # Dedicated country/restriction fields are authoritative even without a
-    # qualifier (e.g. Himalayas: ["United States"]).
+    # qualifier supplied by a source.
     structured_text = " ".join((location_text, restrictions_text, country_text, timezone_text))
     if _has(structured_text, RESTRICTED_COUNTRY_PATTERNS):
         return INDIA_NOT_ELIGIBLE

@@ -104,13 +104,8 @@ CLI/Frontend
 search_jobs()
     ↓
 SourceRegistry
-    ├─ Remotive
     ├─ Greenhouse
-    ├─ GitHub
-    ├─ Himalayas
-    ├─ RemoteOK
-    ├─ Jobicy
-    ├─ Ashby
+   ├─ LinkedIn (opt-in)
     └─ Telegram (disabled by default)
     ↓
 Job Detection + Extraction

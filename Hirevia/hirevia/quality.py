@@ -152,19 +152,23 @@ _JOB_INTENT_TOKENS = {
     "devops", "cloud", "security", "product", "intern", "internship",
 }
 
-_FRESHER_POSITIVE = re.compile(r"\b(?:intern(?:ship)?|fresher|fresh graduate|new grad|graduate(?: trainee| engineer trainee)?|trainee|entry[- ]level|junior|associate|campus|off[- ]campus|[012](?:\s*[-–]\s*[012])?\s*years?)\b", re.IGNORECASE)
-_SENIOR_NEGATIVE = re.compile(r"\b(?:senior|sr\.?|lead|tech lead|principal|staff|architect|manager|senior manager|director|head|vp)\b|\b(?:[3-9]|10)\+?\s*years?\b", re.IGNORECASE)
+_FRESHER_POSITIVE = re.compile(r"\b(?:intern(?:ship)?|fresher|freshers|fresh graduate|new grad|recent graduate|graduate(?:s| trainee| engineer trainee)?|trainee|entry[- ]level|junior|early career|associate|campus|off[- ]campus|0\s*(?:[-–]\s*[12])?\s*years?|1\s*[-–]\s*2\s*years?)\b", re.IGNORECASE)
+_SENIOR_NEGATIVE = re.compile(r"\b(?:senior|sr\.?|lead|tech lead|principal|staff|architect|manager|senior manager|director|head|vp)\b|\b(?:[3-9]|10)\s*\+\s*years?\b", re.IGNORECASE)
 _TARGET_ROLE = re.compile(r"\b(?:ai(?:\s*/\s*ml)?|machine learning|data (?:scientist|science|analyst|engineer|engineering)|python|software|backend|full[- ]stack|sde|technology analyst)\b.*\b(?:engineer|developer|scientist|analyst|intern|trainee|associate)\b|\b(?:engineer|developer|scientist|analyst|intern|trainee|sde)\b.*\b(?:ai|ml|machine learning|data|python|software|backend|full[- ]stack|technology)\b", re.IGNORECASE)
 
 
 def is_fresher_eligible(job: Any) -> bool:
-    """Accept only internships and roles requiring approximately 0-2 years."""
+    """Return whether the job is explicitly early-career or not senior.
+
+    Missing experience is intentionally accepted; this is used as score
+    evidence, not as a discovery gate.
+    """
     metadata = _metadata(job)
     text = " ".join(str(_value(job, key, "")) for key in ("title", "description", "posted"))
     text += " " + " ".join(str(metadata.get(key, "")) for key in ("experience", "experience_years", "requirements", "seniority", "employment_type", "tags"))
     if _SENIOR_NEGATIVE.search(text):
         return False
-    return bool(_FRESHER_POSITIVE.search(text))
+    return not _SENIOR_NEGATIVE.search(text)
 
 
 def is_target_role(job: Any) -> bool:
@@ -178,16 +182,58 @@ def is_target_role(job: Any) -> bool:
 
 
 def profile_match_score(job: Any, profile: Any) -> int:
-    """Score deterministic role and keyword alignment from profile.yaml."""
-    title = str(_value(job, "title", "")).lower()
+    """Return an explainable 0-100 profile score without AND filters."""
+    title = str(_value(job, "title", ""))
     text = " ".join(str(_value(job, key, "")) for key in ("title", "description", "tags")).lower()
     roles = getattr(profile, "target_roles", []) or getattr(profile, "desired_roles", [])
     keywords = getattr(profile, "keywords", []) or getattr(profile, "skills", [])
-    role_hits = sum(1 for role in roles if any(token in title for token in _tokens(role)))
-    keyword_hits = sum(1 for keyword in keywords if str(keyword).lower() in text)
-    role_score = min(100, round(role_hits * 100 / max(1, min(3, len(roles)))))
-    keyword_score = min(100, round(keyword_hits * 100 / max(1, min(5, len(keywords)))))
-    return round(role_score * 0.65 + keyword_score * 0.35)
+    title_tokens = set(_tokens(title))
+    role_hits = [role for role in roles if role_match(title, str(role))]
+    keyword_hits = [keyword for keyword in keywords if str(keyword).lower() in text]
+    score = 50 if role_hits else 0
+    score += min(20, len(keyword_hits) * 5)
+    locations = getattr(profile, "locations", [])
+    location = str(_value(job, "location", "")).lower()
+    if any(str(value).lower() in location for value in locations):
+        score += 10
+    experience_text = text + " " + " ".join(str(_metadata(job).get(key, "")) for key in ("experience", "requirements", "seniority"))
+    if _FRESHER_POSITIVE.search(experience_text):
+        score += 10
+    if _SENIOR_NEGATIVE.search(experience_text):
+        score -= 30
+    if not title_tokens:
+        score = 0
+    return max(0, min(100, score))
+
+
+def role_match(title: str, role: str) -> bool:
+    """Match common role variations while requiring meaningful title terms."""
+    normalized = re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
+    wanted = re.sub(r"[^a-z0-9]+", " ", role.lower()).strip()
+    aliases = {
+        "artificial intelligence": "ai", "machine learning": "ml",
+        "software development engineer": "sde", "backend software": "backend",
+        "python software": "python", "machine learning developer": "ml",
+    }
+    for source, target in aliases.items():
+        normalized = normalized.replace(source, target)
+        wanted = wanted.replace(source, target)
+    if wanted == "sde":
+        return bool(re.search(r"\b(?:sde|software (?:development|) engineer|software engineer)\b", normalized))
+    wanted_tokens = set(wanted.split())
+    if wanted_tokens <= {"ai", "engineer"}:
+        return bool(re.search(r"\b(?:ai|ml)\b", normalized) and re.search(r"\b(?:engineer|developer)\b", normalized))
+    if "data scientist" in wanted:
+        return bool(re.search(r"\b(?:data scientist|applied scientist)\b", normalized))
+    if "data analyst" in wanted:
+        return bool(re.search(r"\bdata analyst\b", normalized))
+    if "backend" in wanted:
+        return "backend" in normalized and bool(re.search(r"\b(?:engineer|developer|software)\b", normalized))
+    if "python" in wanted:
+        return "python" in normalized and bool(re.search(r"\b(?:developer|engineer|software)\b", normalized))
+    if "machine learning" in role.lower() or wanted == "ml engineer":
+        return bool(re.search(r"\b(?:machine learning|ml)\b", normalized) and re.search(r"\b(?:engineer|developer)\b", normalized))
+    return bool(wanted_tokens and wanted_tokens <= set(normalized.split()))
 
 
 def profile_matches(job: Any, profile: Any) -> bool:
@@ -313,5 +359,5 @@ def is_likely_application_url(url: str) -> bool:
     text = normalized.lower()
     return any(marker in text for marker in (
         "/job", "/career", "/careers", "/apply", "greenhouse.io",
-        "lever.co", "ashbyhq.com", "workable.com", "smartrecruiters.com",
+        "lever.co", "workable.com", "smartrecruiters.com",
     ))

@@ -27,6 +27,7 @@ from hirevia.quality import (
     profile_matches,
     relevance_score,
     verify_application_link,
+    role_match,
 )
 from hirevia.llm_relevance import LLMRelevance
 from hirevia.nvidia_client import NVIDIAClient
@@ -163,7 +164,7 @@ def search_jobs(
     source_counts: Dict[str, int] = {}
     source_errors: Dict[str, str] = {}
     stats = scan_stats if scan_stats is not None else {}
-    stats.update({"sources": {}, "raw_jobs": 0, "normalized": 0})
+    stats.update({"sources": {}, "raw_jobs": 0, "normalized": 0, "processed_jobs": []})
     logger.info("[SCAN] Started (%d sources)", len(sources))
     profile = profile or Profile(name="Job Seeker")
 
@@ -245,21 +246,13 @@ def search_jobs(
     logger.info("[SCAN] Normalized: %d", stats["normalized"])
     deduplicated_jobs = deduplicate_jobs(all_jobs)
     stats["after_deduplication"] = len(deduplicated_jobs)
-    # Quality gates run before cache filtering and scoring so invalid or weak
-    # opportunities never become new results or consume AI work.
+    # Quality metadata is attached to every discovered job. Discovery is not
+    # a match decision, so weak or incomplete records remain processable.
     quality_jobs: List[Job] = []
     link_states: Dict[str, LinkState] = {}
     for job in deduplicated_jobs:
-        if job.india_eligibility != INDIA_ELIGIBLE:
-            continue
         if is_expired(job):
-            continue
-        if not is_fresher_eligible(job) or not is_target_role(job):
-            continue
-        if not profile_matches(job, profile):
-            continue
-        if not is_relevant(query, job):
-            continue
+            job.source_metadata = {**(job.source_metadata or {}), "match_excluded": "expired"}
         if job.url and job.source != "Telegram" and is_likely_application_url(job.url):
             link_key = job.url.lower().strip()
             link_state = link_states.get(link_key)
@@ -276,38 +269,36 @@ def search_jobs(
                 "application_link_state": link_state.value,
             }
             if link_state == LinkState.VERIFIED_UNAVAILABLE:
-                continue
+                job.source_metadata = {**(job.source_metadata or {}), "match_excluded": "unavailable_link"}
         job.source_metadata = {
             **(job.source_metadata or {}),
             "freshness_score": freshness_score(job),
         }
         quality_jobs.append(job)
     all_jobs = quality_jobs
+    stats["processed_jobs"] = list(all_jobs)
     stats["india_eligible"] = sum(job.india_eligibility == INDIA_ELIGIBLE for job in deduplicated_jobs)
     stats["fresher_eligible"] = sum(is_fresher_eligible(job) for job in deduplicated_jobs if job.india_eligibility == INDIA_ELIGIBLE)
-    stats["relevant_roles"] = len(quality_jobs)
-    logger.info("[SCAN] India eligible: %d", stats["india_eligible"])
-    logger.info("[SCAN] Fresher eligible: %d", stats["fresher_eligible"])
-    logger.info("[SCAN] Relevant roles: %d", stats["relevant_roles"])
-    logger.info("[SCAN] After deduplication: %d", stats["after_deduplication"])
+    stats["relevant_roles"] = sum(is_target_role(job) for job in quality_jobs)
+    logger.info("[SCAN] Deduplicated: %d", stats["after_deduplication"])
+    logger.info("[SCAN] Processed before matching: %d", len(all_jobs))
 
     cache = None
     if not no_cache:
         try:
             cache = SeenJobsCache(ttl_days=cache_days)
             before_count = len(all_jobs)
-            all_jobs = cache.filter_new(all_jobs)
+            new_jobs = cache.filter_new(all_jobs)
+            stats["new"] = len(new_jobs)
             if show_output and before_count != len(all_jobs):
                 console.print(
-                    f"[dim]📋 Cache: {before_count} → {len(all_jobs)} new jobs ({before_count - len(all_jobs)} previously seen, {cache_days}d TTL)[/dim]"
+                    f"[dim]📋 Cache: {before_count} → {len(new_jobs)} new jobs ({before_count - len(new_jobs)} previously seen, {cache_days}d TTL)[/dim]"
                 )
         except Exception as exc:
             logger.warning("Cache unavailable: %s", exc)
 
     # India-only is a product invariant; retain the old parameter for API
     # compatibility but never allow it to be disabled.
-    all_jobs = [job for job in all_jobs if job.india_eligibility == INDIA_ELIGIBLE]
-
     if show_output:
         src_summary = ", ".join(f"{name}: {count}" for name, count in source_counts.items() if count > 0)
         console.print(
@@ -364,12 +355,11 @@ def search_jobs(
                 console.print("[yellow]⚠ Local LLM not available. Running without AI ratings.[/yellow]")
                 console.print("[dim]  Auto-detected ports: 11434 (Ollama), 8080 (llama.cpp), 1234 (LM Studio)[/dim]")
                 console.print("[dim]  Start Ollama, llama-server, or LM Studio, then try again[/dim]\n")
-            for job in all_jobs:
-                job.score = 50
-                job.rating = "No AI"
-    elif not ai_enabled:
+            pass
         for job in all_jobs:
             profile_score = profile_match_score(job, profile)
+            if not (getattr(profile, "target_roles", []) or getattr(profile, "desired_roles", []) or getattr(profile, "keywords", []) or getattr(profile, "skills", [])):
+                profile_score = relevance_score(query, job)
             freshness = int((job.source_metadata or {}).get("freshness_score", 25))
             job.score = round(profile_score * 0.65 + relevance_score(query, job) * 0.10 + freshness * 0.20 + (5 if job.source == "Greenhouse" else 0))
             job.rating = "Deterministic"
@@ -399,7 +389,11 @@ def search_jobs(
             }
             if not analysis.hard_mismatch and analysis.relevant and analysis.relevance_score >= 60:
                 filtered_jobs.append(job)
-        all_jobs = filtered_jobs
+        for job in all_jobs:
+            if job not in filtered_jobs:
+                job.source_metadata = {**(job.source_metadata or {}), "llm_match": False}
+        # Keep the complete processed set for persistence; semantic results
+        # influence matching below rather than deleting scanned records.
         ranked = nvidia_client.rank_jobs(query, nvidia_intent, all_jobs, analyses)
         for job in all_jobs:
             ranking = ranked.get(nvidia_client.job_identity(job))
@@ -432,15 +426,17 @@ def search_jobs(
                 })
                 strong_deterministic = deterministic >= 85
                 if not ((result.relevant and result.score >= 70) or (strong_deterministic and result.score >= 50)):
-                    continue
-            filtered_jobs.append(job)
-        all_jobs = filtered_jobs
+                    job.source_metadata["llm_match"] = False
+        # Do not discard scanned jobs when semantic matching rejects them.
 
     for job in all_jobs:
         metadata = job.source_metadata or {}
         if not ai_enabled:
-            job.score = 0
-            job.rating = "AI disabled"
+            job.score = profile_match_score(job, profile)
+            job.rating = "Deterministic"
+            if metadata.get("match_excluded"):
+                job.score = 0
+                job.rating = "Scanned only"
             continue
         freshness = int(metadata.get("freshness_score", 25))
         deterministic = int(metadata.get("deterministic_relevance", relevance_score(query, job)))
@@ -456,6 +452,8 @@ def search_jobs(
             )
             job.reasoning = metadata.get("nvidia_ranking_reason") or "; ".join(metadata.get("nvidia_reasons", []))
             job.rating = "NVIDIA AI"
+            if metadata.get("llm_match") is False and metadata.get("llm_relevance") is not None:
+                job.score = 0
             continue
         llm_score = metadata.get("llm_relevance")
         if llm_score is not None:
@@ -469,16 +467,27 @@ def search_jobs(
             )
         else:
             job.score = round((job.score * 0.8) + (freshness * 0.2))
+        if metadata.get("llm_match") is False and metadata.get("llm_relevance") is not None:
+            job.score = 0
+        if metadata.get("match_excluded"):
+            job.score = 0
+            job.rating = "Scanned only"
     all_jobs.sort(key=lambda job: job.score, reverse=True)
-    stats["final_jobs"] = len(all_jobs)
-    logger.info("[SCAN] Final jobs: %d", stats["final_jobs"])
+    stats["matched"] = sum(job.score >= 50 for job in all_jobs)
+    stats["stored_scanned"] = len(all_jobs)
+    matched_jobs = [job for job in all_jobs if job.score >= 50]
+    stats["final_jobs"] = len(matched_jobs)
+    logger.info("[SCAN] Scored: %d", stats["stored_scanned"])
+    logger.info("[SCAN] Stored/Scanned: %d", stats["stored_scanned"])
+    logger.info("[SCAN] Matched: %d", stats["matched"])
+    logger.info("[SCAN] New: %d", stats.get("new", stats["stored_scanned"]))
 
     if show_output:
-        display_jobs(all_jobs, profile, ai_enabled)
+        display_jobs(matched_jobs, profile, ai_enabled)
 
     if export_path:
         fmt = "csv" if export_path.endswith(".csv") else "json"
-        export_results(all_jobs, export_path, fmt)
+        export_results(matched_jobs, export_path, fmt)
     elif show_output:
         auto_path = os.path.join(os.getcwd(), "results.csv")
         export_results(all_jobs, auto_path, "csv")
@@ -494,4 +503,4 @@ def search_jobs(
         finally:
             cache.close()
 
-    return all_jobs
+    return matched_jobs

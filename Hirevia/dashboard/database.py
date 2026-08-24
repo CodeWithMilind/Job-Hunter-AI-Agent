@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from hirevia.eligibility import INDIA_ELIGIBLE, UNKNOWN, classify_india_eligibility
-from hirevia.quality import is_fresher_eligible, is_target_role, normalize_url
+from hirevia.quality import normalize_url
 
 DB_PATH = os.environ.get("hirevia_DB", os.path.join(os.path.dirname(__file__), "hirevia_dashboard.db"))
 
@@ -138,6 +138,7 @@ def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     d["tags"] = json.loads(d["tags"]) if d["tags"] else []
     d["remote"] = bool(d["remote"])
     d["source_metadata"] = json.loads(d["source_metadata"]) if d.get("source_metadata") else {}
+    d["match_status"] = "matched" if d.get("score", 0) >= 50 else "scanned"
     return d
 
 
@@ -253,8 +254,8 @@ def get_jobs(
     limit: int = 200,
     offset: int = 0,
 ) -> List[Dict[str, Any]]:
-    clauses = ["score >= ?", "score <= ?", "india_eligibility = ?"]
-    params: list = [min_score, max_score, INDIA_ELIGIBLE]
+    clauses = ["score >= ?", "score <= ?"]
+    params: list = [min_score, max_score]
 
     if status:
         clauses.append("status = ?")
@@ -282,7 +283,7 @@ def get_jobs(
             f"SELECT * FROM jobs WHERE {where} ORDER BY {sort_by} {order} LIMIT ? OFFSET ?",
             (*params, limit, offset),
         ).fetchall()
-        return [job for job in (_row_to_dict(r) for r in rows) if is_fresher_eligible(job) and is_target_role(job)]
+        return [_row_to_dict(r) for r in rows]
 
 
 def update_job_status(job_id: int, new_status: str) -> Optional[Dict[str, Any]]:
@@ -337,6 +338,7 @@ def get_stats() -> Dict[str, Any]:
         by_status = {}
         for row in conn.execute("SELECT status, COUNT(*) as cnt FROM jobs GROUP BY status"):
             by_status[row["status"]] = row["cnt"]
+        matched = conn.execute("SELECT COUNT(*) FROM jobs WHERE score >= 50").fetchone()[0]
         high_match = conn.execute("SELECT COUNT(*) FROM jobs WHERE score > 80").fetchone()[0]
         avg_score = conn.execute("SELECT COALESCE(AVG(score), 0) FROM jobs").fetchone()[0]
         by_source = {}
@@ -345,6 +347,8 @@ def get_stats() -> Dict[str, Any]:
 
         return {
             "total": total,
+            "scanned": total,
+            "matched": matched,
             "by_status": by_status,
             "high_match": high_match,
             "avg_score": round(avg_score, 1),

@@ -1,5 +1,5 @@
 # Hirevia — Company Configuration
-# ATS sources: Greenhouse and Ashby
+# ATS source: Greenhouse
 
 greenhouse:
   - gitlab
@@ -16,16 +16,3 @@ greenhouse:
   - airbnb
   - shopify
 
-ashby:
-  - openai
-  - anthropic
-  - linear
-  - resend
-  - clerk
-  - supabase
-  - vercel
-  - railway
-  - render
-  - neon
-  - posthog
-  - attio

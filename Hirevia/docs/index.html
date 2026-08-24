@@ -519,8 +519,8 @@
         <span class="terminal-title">hirevia -- search results</span>
       </div>
       <div class="terminal-body">
-        <div class="line" style="transition-delay:0.1s"><span class="dim">Searching 8 sources...</span></div>
-        <div class="line" style="transition-delay:0.3s"><span class="source">Remotive</span> <span class="dim">|</span> <span class="source">Arbeitnow</span> <span class="dim">|</span> <span class="source">RemoteOK</span> <span class="dim">|</span> <span class="source">Jobicy</span> <span class="dim">|</span> <span class="source">Himalayas</span> <span class="dim">|</span> <span class="source">Greenhouse</span> <span class="source">Ashby</span></div>
+        <div class="line" style="transition-delay:0.1s"><span class="dim">Searching configured sources...</span></div>
+        <div class="line" style="transition-delay:0.3s"><span class="source">Greenhouse</span> <span class="dim">|</span> <span class="source">LinkedIn</span> <span class="dim">|</span> <span class="source">Telegram</span></div>
         <div class="line" style="transition-delay:0.5s"><span class="dim">Found 847 jobs. Scoring with qwen3:1.7b (Ollama)...</span></div>
         <div class="line" style="transition-delay:0.7s">&nbsp;</div>
         <div class="line" style="transition-delay:0.8s">  <span class="score-high">95</span>  <span class="title">Senior Python Developer</span>  <span class="company">@ GitLab</span></div>
@@ -590,7 +590,7 @@
       <h2 class="section-title">Built for people who<br>actually want to find a job.</h2>
     </div>
     <div class="features stagger">
-      <div class="feature" style="--i:0"><div class="feature-num">01</div><h3>Concurrent Multi-Board Search</h3><p>Searches 8 job sources in parallel. Remotive, Arbeitnow, RemoteOK, Jobicy, Himalayas, plus direct ATS feeds from Greenhouse and Ashby. Results arrive in seconds, not minutes.</p></div>
+      <div class="feature" style="--i:0"><div class="feature-num">01</div><h3>Concurrent Multi-Board Search</h3><p>Searches configured job sources in parallel, including direct ATS feeds from Greenhouse. Results arrive in seconds, not minutes.</p></div>
       <div class="feature" style="--i:1"><div class="feature-num">02</div><h3>Local AI Scoring</h3><p>Every listing is scored 0-100 against your profile using a language model running on your machine. Skills match, experience fit, salary alignment, remote compatibility. No data leaves your laptop.</p></div>
       <div class="feature" style="--i:2"><div class="feature-num">03</div><h3>Web Dashboard</h3><p>A dark-mode interface at localhost:3000 with a Kanban pipeline, color-coded match scores, job inspector with full descriptions and LLM reasoning, and a config editor for your profile.</p></div>
       <div class="feature" style="--i:3"><div class="feature-num">04</div><h3>Smart Caching</h3><p>Persistent SQLite cache with configurable TTL. Jobs you have already seen are filtered out automatically. No more re-reading the same listings every morning.</p></div>
@@ -605,18 +605,12 @@
   <section class="section" id="sources">
     <div class="reveal">
       <p class="section-eyebrow">Data sources</p>
-      <h2 class="section-title">8 sources. One search.</h2>
+      <h2 class="section-title">Configured sources. One search.</h2>
     </div>
     <table class="sources-table">
       <thead><tr><th>Source</th><th>Type</th><th>Notes</th></tr></thead>
       <tbody>
-        <tr><td class="source-name">Remotive</td><td><span class="source-type api">API</span></td><td class="source-note">Remote jobs, up to 1000 per request</td></tr>
-        <tr><td class="source-name">Arbeitnow</td><td><span class="source-type api">API</span></td><td class="source-note">Worldwide, paginated, 100 per page</td></tr>
-        <tr><td class="source-name">RemoteOK</td><td><span class="source-type api">API</span></td><td class="source-note">Remote jobs, high volume</td></tr>
-        <tr><td class="source-name">Jobicy</td><td><span class="source-type api">API</span></td><td class="source-note">Remote jobs with salary data</td></tr>
-        <tr><td class="source-name">Himalayas</td><td><span class="source-type api">API</span></td><td class="source-note">Remote jobs with seniority levels</td></tr>
         <tr><td class="source-name">Greenhouse</td><td><span class="source-type ats">ATS</span></td><td class="source-note">15 curated companies (GitLab, Figma, Stripe)</td></tr>
-        <tr><td class="source-name">Ashby</td><td><span class="source-type ats">ATS</span></td><td class="source-note">15 curated companies (OpenAI, Anthropic, Linear)</td></tr>
         <tr><td class="source-name">LinkedIn</td><td><span class="source-type scrape">Opt-in</span></td><td class="source-note">Web scraping, off by default, may violate ToS</td></tr>
       </tbody>
     </table>
