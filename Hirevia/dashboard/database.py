@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from hirevia.eligibility import INDIA_ELIGIBLE, UNKNOWN, classify_india_eligibility
-from hirevia.quality import normalize_url
+from hirevia.quality import normalize_url, profile_qualified
 
 DB_PATH = os.environ.get("hirevia_DB", os.path.join(os.path.dirname(__file__), "hirevia_dashboard.db"))
 
@@ -133,12 +133,12 @@ def get_db():
 
 # ─── Job CRUD ──────────────────────────────────────────────────────────────
 
-def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+def _row_to_dict(row: sqlite3.Row, profile: Any = None) -> Dict[str, Any]:
     d = dict(row)
     d["tags"] = json.loads(d["tags"]) if d["tags"] else []
     d["remote"] = bool(d["remote"])
     d["source_metadata"] = json.loads(d["source_metadata"]) if d.get("source_metadata") else {}
-    d["match_status"] = "matched" if d.get("score", 0) >= 50 else "scanned"
+    d["match_status"] = "matched" if profile is not None and profile_qualified(d, profile) else "scanned"
     return d
 
 
@@ -253,6 +253,8 @@ def get_jobs(
     sort_order: str = "DESC",
     limit: int = 200,
     offset: int = 0,
+    profile: Any = None,
+    matched: Optional[bool] = None,
 ) -> List[Dict[str, Any]]:
     clauses = ["score >= ?", "score <= ?"]
     params: list = [min_score, max_score]
@@ -283,7 +285,10 @@ def get_jobs(
             f"SELECT * FROM jobs WHERE {where} ORDER BY {sort_by} {order} LIMIT ? OFFSET ?",
             (*params, limit, offset),
         ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        jobs = [_row_to_dict(r, profile) for r in rows]
+        if profile is not None and matched is not None:
+            jobs = [job for job in jobs if profile_qualified(job, profile) is matched]
+        return jobs
 
 
 def update_job_status(job_id: int, new_status: str) -> Optional[Dict[str, Any]]:
@@ -332,7 +337,7 @@ def clear_runtime_data() -> int:
 
 # ─── Stats ─────────────────────────────────────────────────────────────────
 
-def get_stats() -> Dict[str, Any]:
+def get_stats(profile: Any = None) -> Dict[str, Any]:
     with get_db() as conn:
         total = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
         by_status = {}
@@ -345,7 +350,7 @@ def get_stats() -> Dict[str, Any]:
         for row in conn.execute("SELECT source, COUNT(*) as cnt FROM jobs GROUP BY source ORDER BY cnt DESC"):
             by_source[row["source"]] = row["cnt"]
 
-        return {
+        result = {
             "total": total,
             "scanned": total,
             "matched": matched,
@@ -354,6 +359,10 @@ def get_stats() -> Dict[str, Any]:
             "avg_score": round(avg_score, 1),
             "by_source": by_source,
         }
+        if profile is not None:
+            jobs = [_row_to_dict(row, profile) for row in conn.execute("SELECT * FROM jobs")]
+            result["matched"] = sum(profile_qualified(job, profile) for job in jobs)
+        return result
 
 
 def record_source_status(source: Dict[str, Any], jobs_collected: int = 0, error: str = ""):

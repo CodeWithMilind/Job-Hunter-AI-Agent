@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock
 from types import SimpleNamespace
 
-from hirevia.models import Job
+from hirevia.models import Job, Profile
 from hirevia.llm_relevance import LLMJobResult, SearchIntent
 
 
@@ -65,7 +65,13 @@ def test_llm_relevance_removes_candidate(monkeypatch):
     monkeypatch.setattr(pipeline, "LLMRelevance", lambda *args, **kwargs: semantic)
     monkeypatch.setattr(pipeline, "verify_application_link", lambda *args, **kwargs: pipeline.LinkState.UNKNOWN)
 
-    jobs = pipeline.search_jobs("Python Developer", ai_enabled=True, no_cache=True, show_output=False)
+    jobs = pipeline.search_jobs(
+        "Python Developer",
+        profile=Profile(target_roles=["Python Developer"], locations=["India"], experience=["intern"]),
+        ai_enabled=True,
+        no_cache=True,
+        show_output=False,
+    )
 
     assert semantic.calls == 1
     assert [job.company for job in jobs] == ["GoodCo"]

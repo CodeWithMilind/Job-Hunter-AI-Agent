@@ -25,6 +25,7 @@ from hirevia.quality import (
     is_relevant,
     profile_match_score,
     profile_matches,
+    profile_qualified,
     relevance_score,
     verify_application_link,
     role_match,
@@ -473,9 +474,9 @@ def search_jobs(
             job.score = 0
             job.rating = "Scanned only"
     all_jobs.sort(key=lambda job: job.score, reverse=True)
-    stats["matched"] = sum(job.score >= 50 for job in all_jobs)
+    stats["matched"] = sum(profile_qualified(job, profile) for job in all_jobs)
     stats["stored_scanned"] = len(all_jobs)
-    matched_jobs = [job for job in all_jobs if job.score >= 50]
+    matched_jobs = [job for job in all_jobs if profile_qualified(job, profile)]
     stats["final_jobs"] = len(matched_jobs)
     logger.info("[SCAN] Scored: %d", stats["stored_scanned"])
     logger.info("[SCAN] Stored/Scanned: %d", stats["stored_scanned"])

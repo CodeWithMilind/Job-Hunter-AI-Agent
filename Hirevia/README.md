@@ -48,9 +48,11 @@ opportunities:
 
 ```text
 Query intent -> discovery -> normalize -> stable deduplication
--> store scanned records -> profile scoring -> matched ranking
+-> score all jobs -> persist scanned records -> profile qualification
+-> matched ranking
 ```
 
+- `profile_qualified()` is the single backend rule for `MATCHED`: score must be at least 50, location must be explicitly India-compatible, early-career evidence must be present, the title must match a configured target role, and exclusions/senior requirements must be absent. Unknown locations and missing experience remain scanned but are not confirmed matches.
 - Explicitly closed or expired jobs are retained as scanned records but do not match. Old posted dates alone are not rejected, and invalid dates remain safe.
 - Duplicate identity prefers normalized application URLs, source/external IDs, and then company + role + location. Tracking parameters and trailing slashes are normalized.
 - Freshness is deterministic from published/posted/updated timestamps with bands for under 1 hour, 6 hours, 24 hours, 1-3 days, and older jobs.
@@ -101,7 +103,7 @@ Frontend/API ──────┘
 
 ## Source coverage and compliance
 
-The registry currently supports Greenhouse, LinkedIn as a disabled opt-in adapter, and public Telegram channels. Naukri, Internshala, Unstop, Cutshort, Wellfound, Hirist, and other login/anti-bot platforms are not implemented in this checkout. Hirevia does not bypass authentication, CAPTCHA, robots rules, anti-bot controls, or rate limits.
+The registry currently supports Greenhouse, LinkedIn as a disabled opt-in adapter, and public Telegram channels. The dashboard's `GET /api/jobs?matched=true` and `/api/stats` use the same profile qualification rule as manual search and background monitoring. Naukri, Internshala, Unstop, Cutshort, Wellfound, Hirist, and other login/anti-bot platforms are not implemented in this checkout. Hirevia does not bypass authentication, CAPTCHA, robots rules, anti-bot controls, or rate limits.
 
 The shared pipeline in `hirevia/pipeline.py` is the source of truth for:
 

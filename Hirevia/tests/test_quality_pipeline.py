@@ -14,7 +14,9 @@ from hirevia.quality import (
     is_fresher_eligible,
     is_target_role,
     verify_application_link,
+    profile_qualified,
 )
+from hirevia.models import Profile
 
 
 def job(title="Python Developer", company="Acme", description="Python Django FastAPI", **metadata):
@@ -111,3 +113,34 @@ def test_fresher_and_role_gates():
     assert is_target_role(job("Data Analyst Intern"))
     assert is_target_role(job("Backend Developer"))
     assert not is_target_role(job("Sales Associate"))
+
+
+def test_profile_qualification_requires_india_early_career_and_role():
+    profile = Profile(
+        target_roles=["Data Scientist", "Machine Learning Engineer", "AI Engineer", "Data Analyst"],
+        keywords=["Python", "SQL", "Machine Learning", "Pandas", "TensorFlow"],
+        locations=["India", "Pune", "Bengaluru"],
+        experience=["internship", "fresher", "0-2 years"],
+        exclude_keywords=["Senior", "Lead", "Architect", "Manager", "5+ years"],
+    )
+
+    cases = [
+        ("AI Engineer", "Pune, India", "Fresher", True),
+        ("Machine Learning Engineer", "Bengaluru, India", "0-2 years", True),
+        ("Data Scientist Intern", "India", "Internship", True),
+        ("AI Engineer", "USA", "Fresher", False),
+        ("Data Scientist", "Europe", "0-2 years", False),
+        ("Data Analyst", "USA", "Entry level", False),
+        ("Senior AI Engineer", "Pune, India", "5+ years", False),
+        ("Senior Data Scientist", "Bengaluru, India", "4+ years", False),
+        ("Frontend React Developer", "Pune, India", "Fresher", False),
+    ]
+    for title, location, experience, expected in cases:
+        candidate = Job(title, "Example", location, "https://example.test/job", f"{experience}. Python SQL Machine Learning", source_metadata={"experience": experience}, score=80)
+        assert profile_qualified(candidate, profile) is expected, title
+
+
+def test_profile_qualification_keeps_unknown_location_scanned():
+    profile = Profile(target_roles=["AI Engineer"], keywords=["Python"], locations=["India"], experience=["fresher"])
+    candidate = Job("AI Engineer", "Example", "Unknown", "https://example.test/job", "Fresher Python", source_metadata={"experience": "Fresher"}, score=90)
+    assert profile_qualified(candidate, profile) is False

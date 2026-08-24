@@ -24,7 +24,7 @@ for entry in (_project_root, _dashboard_dir):
         sys.path.insert(0, entry)
 
 import database as db
-from hirevia.quality import LinkState, freshness_score, is_expired, is_relevant, verify_application_link
+from hirevia.quality import LinkState, freshness_score, is_expired, is_relevant, profile_qualified, verify_application_link
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hirevia-dashboard")
@@ -262,12 +262,15 @@ def list_jobs(
     sort_order: str = "DESC",
     limit: int = 200,
     offset: int = 0,
+    matched: Optional[bool] = None,
 ):
+    profile = _profile() if matched is not None else None
     jobs = db.get_jobs(
         status=status, min_score=min_score, max_score=max_score,
         remote_only=remote, india_eligible_only=india_eligible, source=source, search=search,
         sort_by=sort_by, sort_order=sort_order,
         limit=limit, offset=offset,
+        profile=profile or _profile(), matched=matched,
     )
     return {"jobs": jobs, "count": len(jobs)}
 
@@ -403,6 +406,7 @@ def get_job(job_id: int):
     job = db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    job["match_status"] = "matched" if profile_qualified(job, _profile()) else "scanned"
     return job
 
 
@@ -438,7 +442,7 @@ def delete_job(job_id: int):
 
 @app.get("/api/stats")
 def get_stats():
-    stats = db.get_stats()
+    stats = db.get_stats(_profile())
     stats["new_jobs"] = _monitor_state.get("scan_stats", {}).get("new", 0)
     return stats
 
@@ -554,7 +558,7 @@ def search_jobs_json(req: SearchRequest):
             "timezone": job.timezone,
             "tags": job.tags,
         })
-        if job.score >= 50:
+        if profile_qualified(job, profile):
             payload_jobs.append(payload)
 
     db.record_search(req.query, req.location, len(jobs), len(payload_jobs))

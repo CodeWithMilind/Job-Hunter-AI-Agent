@@ -316,7 +316,7 @@ class TestUnifiedPipeline:
         monkeypatch.setattr("hirevia.pipeline.SeenJobsCache", FakeCache)
         monkeypatch.setattr("hirevia.pipeline.AIRater", FakeRater)
 
-        jobs = search_jobs(query="python", ai_enabled=True, no_cache=True)
+        jobs = search_jobs(query="python", profile=Profile(target_roles=["Python Developer"], locations=["India"], experience=["intern"]), ai_enabled=True, no_cache=True)
         assert len(jobs) == 1
         titles = {job.title for job in jobs}
         assert titles == {"Python Developer Intern"}

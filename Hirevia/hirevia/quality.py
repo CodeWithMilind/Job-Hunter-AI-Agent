@@ -171,6 +171,14 @@ def is_fresher_eligible(job: Any) -> bool:
     return not _SENIOR_NEGATIVE.search(text)
 
 
+def has_early_career_evidence(job: Any) -> bool:
+    """Return whether the listing explicitly targets early-career candidates."""
+    metadata = _metadata(job)
+    text = " ".join(str(_value(job, key, "")) for key in ("title", "description", "posted"))
+    text += " " + " ".join(str(metadata.get(key, "")) for key in ("experience", "experience_years", "requirements", "seniority", "employment_type", "tags"))
+    return bool(_FRESHER_POSITIVE.search(text))
+
+
 def is_target_role(job: Any) -> bool:
     """Keep technology roles relevant to an early-career technology profile."""
     title = str(_value(job, "title", ""))
@@ -250,6 +258,44 @@ def profile_matches(job: Any, profile: Any) -> bool:
     if not roles and not keywords:
         return True
     return any(str(role).lower() in lowered for role in roles) or any(str(keyword).lower() in lowered for keyword in keywords)
+
+
+def profile_qualified(job: Any, profile: Any, threshold: int = 50) -> bool:
+    """Apply the single authoritative qualification rule for MATCHED jobs."""
+    score = int(_value(job, "score", 0) or 0)
+    if score < threshold:
+        return False
+
+    metadata = _metadata(job)
+    location = str(_value(job, "location", "")).strip().lower()
+    structured_location = " ".join(
+        str(_value(job, key, "")) for key in ("location", "country", "timezone", "location_restrictions")
+    ).lower()
+    # Global/foreign-only locations are never confirmed profile matches.
+    if re.search(r"\b(?:usa?|united states|europe|latam|uk|canada|australia|germany|singapore|remote\s+(?:global|usa?|europe))\b", structured_location):
+        if not re.search(r"\b(?:india|indian|pan\s*india|pune|mumbai|bangalore|bengaluru|hyderabad|chennai|delhi|noida|gurgaon|gurugram|ahmedabad|kolkata|jaipur)\b", structured_location):
+            return False
+    if str(_value(job, "india_eligibility", "UNKNOWN")) != "INDIA_ELIGIBLE":
+        return False
+    if not location or location in {"unknown", "n/a", "na", "not specified"}:
+        return False
+
+    if _SENIOR_NEGATIVE.search(" ".join(str(metadata.get(key, "")) for key in ("experience", "experience_years", "requirements", "seniority")) + " " + str(_value(job, "title", ""))):
+        return False
+    if not has_early_career_evidence(job):
+        return False
+
+    title = str(_value(job, "title", ""))
+    roles = getattr(profile, "target_roles", []) or getattr(profile, "desired_roles", [])
+    if not any(role_match(title, str(role)) for role in roles):
+        return False
+
+    text = " ".join(str(_value(job, key, "")) for key in ("title", "description", "tags"))
+    text += " " + " ".join(str(metadata.get(key, "")) for key in ("experience", "requirements", "seniority"))
+    exclusions = [str(value).strip() for value in getattr(profile, "exclude_keywords", [])]
+    if any(value and re.search(rf"(?<!\w){re.escape(value)}(?!\w)", text, re.IGNORECASE) for value in exclusions):
+        return False
+    return True
 
 
 def relevance_score(query: str, job: Any) -> int:
